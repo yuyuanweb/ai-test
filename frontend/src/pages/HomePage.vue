@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { useLoginUserStore } from '@/stores/loginUser'
+import { useRouter } from 'vue-router'
+import { SwapOutlined, ExperimentOutlined } from '@ant-design/icons-vue'
 
 const loginUserStore = useLoginUserStore()
+const router = useRouter()
+
+const navigateTo = (path: string) => {
+  router.push(path)
+}
 </script>
 
 <template>
@@ -9,8 +16,8 @@ const loginUserStore = useLoginUserStore()
     <div class="container">
       <!-- 网站标题和描述 -->
       <div class="hero-section">
-        <h1 class="hero-title">项目模板</h1>
-        <p class="hero-description">Spring Boot + Vue 全栈项目初始化模板</p>
+        <h1 class="hero-title">AI模型评测平台</h1>
+        <p class="hero-description">对比测试100+大模型，找到最适合你的AI助手</p>
       </div>
 
       <!-- 欢迎信息 -->
@@ -20,35 +27,70 @@ const loginUserStore = useLoginUserStore()
             <span>👋 欢迎使用</span>
           </template>
           <p v-if="loginUserStore.loginUser.id">
-            欢迎回来，{{ loginUserStore.loginUser.userName }}！
+            欢迎回来，{{ loginUserStore.loginUser.userName }}！开始你的AI模型评测之旅吧。
           </p>
           <p v-else>
             请先 <router-link to="/user/login">登录</router-link> 或
-            <router-link to="/user/register">注册</router-link>
+            <router-link to="/user/register">注册</router-link> 开始使用
           </p>
         </a-card>
       </div>
 
-      <!-- 功能介绍 -->
+      <!-- 核心功能入口 -->
       <div class="features-section">
-        <h2 class="section-title">模板特性</h2>
+        <h2 class="section-title">核心功能</h2>
+        <a-row :gutter="[24, 24]">
+          <a-col :xs="24" :sm="12">
+            <a-card class="feature-card clickable" @click="navigateTo('/side-by-side')">
+              <template #title>
+                <SwapOutlined style="margin-right: 8px" />
+                Side-by-Side 并排对比
+              </template>
+              <p>选择1-8个模型，并排对比回答效果、速度和成本</p>
+              <div class="feature-tags">
+                <a-tag color="blue">实时流式</a-tag>
+                <a-tag color="green">并行调用</a-tag>
+                <a-tag color="orange">性能统计</a-tag>
+              </div>
+            </a-card>
+          </a-col>
+          <a-col :xs="24" :sm="12">
+            <a-card class="feature-card clickable" @click="navigateTo('/prompt-lab')">
+              <template #title>
+                <ExperimentOutlined style="margin-right: 8px" />
+                Prompt Lab 提示词实验
+              </template>
+              <p>测试同一模型的不同提示词策略，优化提示词效果</p>
+              <div class="feature-tags">
+                <a-tag color="purple">提示词优化</a-tag>
+                <a-tag color="cyan">效果对比</a-tag>
+                <a-tag color="geekblue">最佳推荐</a-tag>
+              </div>
+            </a-card>
+          </a-col>
+        </a-row>
+      </div>
+
+      <!-- 平台特性 -->
+      <div class="features-section">
+        <h2 class="section-title">平台特性</h2>
         <a-row :gutter="[24, 24]">
           <a-col :xs="24" :sm="12" :md="8">
             <a-card class="feature-card">
-              <template #title>🔐 用户模块</template>
-              <p>完整的用户注册、登录、权限管理功能</p>
+              <template #title>🚀 337+模型</template>
+              <p>支持OpenAI、Claude、Gemini、通义千问、DeepSeek等337个模型</p>
             </a-card>
           </a-col>
           <a-col :xs="24" :sm="12" :md="8">
             <a-card class="feature-card">
-              <template #title>📝 接口文档</template>
-              <p>集成 Knife4j，自动生成 API 文档</p>
+              <template #title>⚡ 并行调用</template>
+              <p>多模型并行调用，响应速度提升4倍</p>
             </a-card>
           </a-col>
           <a-col :xs="24" :sm="12" :md="8">
             <a-card class="feature-card">
-              <template #title>🗃️ 数据持久化</template>
-              <p>MyBatis-Flex + MySQL + Redis 数据存储</p>
+              <template #title>💰 成本透明</template>
+              <p>实时Token统计，精确成本计算</p>
             </a-card>
           </a-col>
         </a-row>
@@ -128,6 +170,14 @@ const loginUserStore = useLoginUserStore()
 .feature-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
+}
+
+.feature-card.clickable {
+  cursor: pointer;
+}
+
+.feature-tags {
+  margin-top: 12px;
 }
 
 /* 响应式设计 */

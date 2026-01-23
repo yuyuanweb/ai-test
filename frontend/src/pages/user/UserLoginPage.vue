@@ -19,7 +19,9 @@
         <RouterLink to="/user/register">去注册</RouterLink>
       </div>
       <a-form-item>
-        <a-button type="primary" html-type="submit" style="width: 100%">登录</a-button>
+        <a-button type="primary" html-type="submit" style="width: 100%" class="login-btn"
+          >登 录</a-button
+        >
       </a-form-item>
     </a-form>
   </div>
@@ -78,5 +80,15 @@ const handleSubmit = async (values: any) => {
   color: #bbb;
   font-size: 13px;
   margin-bottom: 16px;
+}
+
+.login-btn {
+  background: #000 !important;
+  border-color: #000 !important;
+}
+
+.login-btn:hover {
+  background: #333 !important;
+  border-color: #333 !important;
 }
 </style>

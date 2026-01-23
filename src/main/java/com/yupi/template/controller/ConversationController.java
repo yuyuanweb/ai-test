@@ -1,0 +1,148 @@
+package com.yupi.template.controller;
+
+import com.mybatisflex.core.paginate.Page;
+import com.yupi.template.common.BaseResponse;
+import com.yupi.template.common.DeleteRequest;
+import com.yupi.template.common.ResultUtils;
+import com.yupi.template.exception.ErrorCode;
+import com.yupi.template.exception.ThrowUtils;
+import com.yupi.template.model.dto.conversation.ChatRequest;
+import com.yupi.template.model.dto.conversation.CreateConversationRequest;
+import com.yupi.template.model.dto.conversation.SideBySideRequest;
+import com.yupi.template.model.entity.Conversation;
+import com.yupi.template.model.entity.ConversationMessage;
+import com.yupi.template.model.entity.User;
+import com.yupi.template.model.vo.StreamChunkVO;
+import com.yupi.template.service.ConversationService;
+import com.yupi.template.service.UserService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Flux;
+
+import java.util.List;
+
+/**
+ * 对话接口
+ *
+ * @author <a href="https://codefather.cn">编程导航学习圈</a>
+ */
+@RestController
+@RequestMapping("/conversation")
+@Slf4j
+@Tag(name = "对话接口")
+public class ConversationController {
+
+    @Resource
+    private ConversationService conversationService;
+
+    @Resource
+    private UserService userService;
+
+    /**
+     * 创建对话
+     */
+    @PostMapping("/create")
+    @Operation(summary = "创建对话")
+    public BaseResponse<String> createConversation(
+            @RequestBody CreateConversationRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        User loginUser = userService.getLoginUser(httpRequest);
+        String conversationId = conversationService.createConversation(request, loginUser.getId());
+        return ResultUtils.success(conversationId);
+    }
+
+    /**
+     * 基础对话（流式响应）
+     */
+    @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "基础对话(流式)")
+    public Flux<ServerSentEvent<StreamChunkVO>> chatStream(
+            @RequestBody ChatRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        User loginUser = userService.getLoginUser(httpRequest);
+        log.info("Chat stream request: user={}, model={}", 
+                loginUser.getId(), request.getModel());
+        return conversationService.chatStream(request, loginUser.getId());
+    }
+
+    /**
+     * Side-by-Side 多模型并排对比（流式响应）
+     */
+    @PostMapping(value = "/side-by-side/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "Side-by-Side多模型并排对比(流式)")
+    public Flux<ServerSentEvent<StreamChunkVO>> sideBySideStream(
+            @RequestBody SideBySideRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        User loginUser = userService.getLoginUser(httpRequest);
+        log.info("Side-by-Side stream request: user={}, models={}", 
+                loginUser.getId(), request.getModels());
+        return conversationService.sideBySideStream(request, loginUser.getId());
+    }
+
+    /**
+     * 获取对话详情
+     */
+    @GetMapping("/get")
+    @Operation(summary = "获取对话详情")
+    public BaseResponse<Conversation> getConversation(
+            @RequestParam String conversationId,
+            HttpServletRequest httpRequest
+    ) {
+        User loginUser = userService.getLoginUser(httpRequest);
+        Conversation conversation = conversationService.getConversation(conversationId, loginUser.getId());
+        return ResultUtils.success(conversation);
+    }
+
+    /**
+     * 获取对话列表（分页）
+     */
+    @GetMapping("/list")
+    @Operation(summary = "获取对话列表")
+    public BaseResponse<Page<Conversation>> listConversations(
+            @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "10") int pageSize,
+            HttpServletRequest httpRequest
+    ) {
+        User loginUser = userService.getLoginUser(httpRequest);
+        Page<Conversation> page = conversationService.listConversations(loginUser.getId(), pageNum, pageSize);
+        return ResultUtils.success(page);
+    }
+
+    /**
+     * 获取对话的所有消息
+     */
+    @GetMapping("/messages")
+    @Operation(summary = "获取对话的所有消息")
+    public BaseResponse<List<ConversationMessage>> getConversationMessages(
+            @RequestParam String conversationId,
+            HttpServletRequest httpRequest
+    ) {
+        User loginUser = userService.getLoginUser(httpRequest);
+        List<ConversationMessage> messages = conversationService.getConversationMessages(conversationId, loginUser.getId());
+        return ResultUtils.success(messages);
+    }
+
+    /**
+     * 删除对话
+     */
+    @PostMapping("/delete")
+    @Operation(summary = "删除对话")
+    public BaseResponse<Boolean> deleteConversation(
+            @RequestBody DeleteRequest deleteRequest,
+            HttpServletRequest httpRequest
+    ) {
+        ThrowUtils.throwIf(deleteRequest == null || deleteRequest.getId() == null, ErrorCode.PARAMS_ERROR);
+        User loginUser = userService.getLoginUser(httpRequest);
+        boolean result = conversationService.deleteConversation(deleteRequest.getId().toString(), loginUser.getId());
+        return ResultUtils.success(result);
+    }
+}
