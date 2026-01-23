@@ -6,7 +6,7 @@
         <RouterLink to="/">
           <div class="header-left">
             <img class="logo" src="@/assets/logo.png" alt="Logo" />
-            <h1 class="site-title">项目名称</h1>
+            <h1 class="site-title">AI模型评测平台</h1>
           </div>
         </RouterLink>
       </a-col>
@@ -53,7 +53,7 @@ import { useRouter } from 'vue-router'
 import { type MenuProps, message } from 'ant-design-vue'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
 import { userLogout } from '@/api/userController.ts'
-import { LogoutOutlined, HomeOutlined } from '@ant-design/icons-vue'
+import { LogoutOutlined, HomeOutlined, SwapOutlined, ExperimentOutlined } from '@ant-design/icons-vue'
 
 const loginUserStore = useLoginUserStore()
 const router = useRouter()
@@ -71,6 +71,18 @@ const originItems = [
     icon: () => h(HomeOutlined),
     label: '主页',
     title: '主页',
+  },
+  {
+    key: '/side-by-side',
+    icon: () => h(SwapOutlined),
+    label: 'Side-by-Side对比',
+    title: 'Side-by-Side对比',
+  },
+  {
+    key: '/prompt-lab',
+    icon: () => h(ExperimentOutlined),
+    label: 'Prompt Lab',
+    title: 'Prompt Lab',
   },
   {
     key: '/admin/userManage',

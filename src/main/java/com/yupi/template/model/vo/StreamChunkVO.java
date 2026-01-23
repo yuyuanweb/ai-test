@@ -122,7 +122,6 @@ public class StreamChunkVO implements Serializable {
     @Schema(description = "思考时间（秒）")
     private Integer thinkingTime;
 
-
     private static final long serialVersionUID = 1L;
 }
 
