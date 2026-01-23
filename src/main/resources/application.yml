@@ -8,7 +8,7 @@ spring:
     store-type: redis
     # session 30 天过期
     timeout: 2592000
-  # MySQL 数据库配置
+  # MySQL 数据库配置 (实际配置在application-local.yml中)
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/ai_eval
@@ -21,6 +21,22 @@ spring:
       port: 6379
       database: 0
       password:
+  # Spring AI 配置
+  ai:
+    openai:
+      # OpenRouter 网关地址（Spring AI会自动添加/v1/chat/completions）
+      base-url: https://openrouter.ai/api
+      # OpenRouter API Key (从环境变量读取)
+      api-key: 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
+      chat:
+        options:
+          # 默认模型
+          model: qwen/qwen-plus
+          temperature: 0.7
+          max-tokens: 4096
+  devtools:
+    restart:
+      enabled: true
 server:
   port: 8123
   servlet:
@@ -29,6 +45,10 @@ server:
     session:
       cookie:
         max-age: 2592000
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
 # springdoc-openapi 配置
 springdoc:
   group-configs:
@@ -40,3 +60,16 @@ knife4j:
   enable: true
   setting:
     language: zh_cn
+# MyBatis-Flex 配置
+mybatis-flex:
+  configuration:
+    # 禁用下划线转驼峰（数据库字段使用驼峰命名）
+    map-underscore-to-camel-case: false
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    print-banner: true
+# 日志配置
+logging:
+  level:
+    com.yupi.template.mapper: debug
+    org.springframework.ai: debug

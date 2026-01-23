@@ -46,3 +46,4 @@ frontend/.env.*.local
 参考文档/
 工具/
 
+/scripts/
