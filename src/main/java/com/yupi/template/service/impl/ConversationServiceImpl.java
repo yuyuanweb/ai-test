@@ -13,6 +13,7 @@ import com.yupi.template.mapper.ConversationMessageMapper;
 import com.yupi.template.mapper.ModelMapper;
 import com.yupi.template.model.dto.conversation.ChatRequest;
 import com.yupi.template.model.dto.conversation.CreateConversationRequest;
+import com.yupi.template.model.dto.conversation.PromptLabRequest;
 import com.yupi.template.model.dto.conversation.SideBySideRequest;
 import com.yupi.template.model.entity.Conversation;
 import com.yupi.template.model.entity.ConversationMessage;
@@ -37,6 +38,7 @@ import reactor.core.publisher.Mono;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -187,6 +189,43 @@ public class ConversationServiceImpl implements ConversationService {
     }
 
     @Override
+    public Flux<ServerSentEvent<StreamChunkVO>> promptLabStream(PromptLabRequest request, Long userId) {
+        // 1. 参数校验
+        validatePromptLabRequest(request);
+
+        // 2. 创建或获取对话记录
+        String conversationId = createOrGetConversation(
+                request.getConversationId(),
+                userId,
+                request.getPromptVariants().get(0),
+                ConversationTypeEnum.PROMPT_LAB,
+                Collections.singletonList(request.getModel())
+        );
+
+        // 3. 获取本轮对话的messageIndex（所有变体共享同一个messageIndex）
+        int userMessageIndex = getNextMessageIndex(conversationId);
+        int assistantMessageIndex = userMessageIndex + 1;
+
+        // 4. 并行调用同一模型的不同提示词变体
+        List<Flux<ServerSentEvent<StreamChunkVO>>> variantFluxes = new ArrayList<>();
+        for (int i = 0; i < request.getPromptVariants().size(); i++) {
+            String promptVariant = request.getPromptVariants().get(i);
+            Flux<ServerSentEvent<StreamChunkVO>> variantFlux = createModelStream(
+                    conversationId,
+                    userId,
+                    request.getModel(),
+                    promptVariant,
+                    i,
+                    assistantMessageIndex  // 所有变体的AI响应使用同一个messageIndex
+            );
+            variantFluxes.add(variantFlux);
+        }
+
+        // 5. 合并所有变体的流
+        return Flux.merge(variantFluxes);
+    }
+
+    @Override
     public Conversation getConversation(String conversationId, Long userId) {
         QueryWrapper wrapper = QueryWrapper.create()
                 .from(Conversation.class)
@@ -244,6 +283,24 @@ public class ConversationServiceImpl implements ConversationService {
         }
         if (request.getPrompt() == null || request.getPrompt().trim().isEmpty()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "提示词不能为空");
+        }
+    }
+
+    /**
+     * 校验Prompt Lab请求
+     */
+    private void validatePromptLabRequest(PromptLabRequest request) {
+        if (request.getModel() == null || request.getModel().trim().isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型不能为空");
+        }
+        if (request.getPromptVariants() == null || request.getPromptVariants().isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "提示词变体列表不能为空");
+        }
+        if (request.getPromptVariants().size() < ConversationConstant.MIN_PROMPT_VARIANTS_COUNT ||
+                request.getPromptVariants().size() > ConversationConstant.MAX_PROMPT_VARIANTS_COUNT) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,
+                    "提示词变体数量必须在" + ConversationConstant.MIN_PROMPT_VARIANTS_COUNT + "-" +
+                            ConversationConstant.MAX_PROMPT_VARIANTS_COUNT + "个之间");
         }
     }
 
@@ -306,30 +363,141 @@ public class ConversationServiceImpl implements ConversationService {
 
         // 获取历史消息构建上下文
         List<org.springframework.ai.chat.messages.Message> messages = new ArrayList<>();
-
-        // 加载历史消息（排除当前正在创建的消息）
-        List<ConversationMessage> historyMessages = getHistoryMessagesForContext(conversationId, fixedMessageIndex);
-
+        
+        // 加载历史消息（排除当前正在创建的消息，如果是Prompt Lab模式，只加载当前变体的消息）
+        List<ConversationMessage> historyMessages = getHistoryMessagesForContext(conversationId, fixedMessageIndex, variantIndex);
+        
         // 转换历史消息为Spring AI的Message格式
+        boolean hasCurrentUserMessage = false;
         for (ConversationMessage msg : historyMessages) {
             if (MessageType.USER.getValue().equals(msg.getRole())) {
-                messages.add(new UserMessage(msg.getContent()));
+                String content = msg.getContent();
+                // 如果是Prompt Lab模式（variantIndex不为null），只添加当前变体的历史消息
+                // 由于getHistoryMessagesForContext已经过滤了variantIndex，这里直接添加即可
+                if (variantIndex != null) {
+                    // 检查variantIndex是否匹配（兼容旧数据：如果variantIndex为null，说明是旧数据，需要通过内容判断）
+                    if (msg.getVariantIndex() != null && !msg.getVariantIndex().equals(variantIndex)) {
+                        // variantIndex不匹配，跳过
+                        log.debug("⏭️ 跳过非当前变体{}的用户消息: variantIndex={}", variantIndex, msg.getVariantIndex());
+                        continue;
+                    } else if (msg.getVariantIndex() == null) {
+                        // 旧数据：通过内容前缀判断
+                        String variantPrefix = "变体" + variantIndex + ":";
+                        if (!content.startsWith(variantPrefix)) {
+                            log.debug("⏭️ 跳过非当前变体{}的用户消息（旧数据）: {}", variantIndex, content);
+                            continue;
+                        }
+                        // 去除"变体X: "前缀
+                        content = content.substring(variantPrefix.length()).trim();
+                    }
+                    // variantIndex匹配，直接使用content（新数据不再有前缀）
+                    messages.add(new UserMessage(content));
+                    log.info("📝 添加当前变体{}的历史用户消息: {}", variantIndex, content);
+                    // 检查是否是当前prompt
+                    if (content.equals(prompt)) {
+                        hasCurrentUserMessage = true;
+                    }
+                } else {
+                    // 非Prompt Lab模式，直接添加所有用户消息
+                    messages.add(new UserMessage(content));
+                    // 检查是否是当前prompt
+                    if (content.equals(prompt)) {
+                        hasCurrentUserMessage = true;
+                    }
+                }
             } else if (MessageType.ASSISTANT.getValue().equals(msg.getRole())) {
                 // 只添加当前模型的历史回复（避免混淆）
                 if (modelName.equals(msg.getModelName())) {
-                    messages.add(new AssistantMessage(msg.getContent()));
+                    // 如果是Prompt Lab模式，需要检查这个AI消息是否属于当前变体
+                    if (variantIndex != null) {
+                        // 优先使用variantIndex字段（如果存在）
+                        if (msg.getVariantIndex() != null) {
+                            if (!msg.getVariantIndex().equals(variantIndex)) {
+                                // 不是当前变体的AI消息，跳过（虽然getHistoryMessagesForContext已经过滤，但为了安全还是检查）
+                                log.debug("⏭️ 跳过非当前变体{}的AI消息: messageIndex={}, variantIndex={}", 
+                                        variantIndex, msg.getMessageIndex(), msg.getVariantIndex());
+                                continue;
+                            }
+                            log.debug("✅ messageIndex {} 的AI消息属于当前变体{} (通过variantIndex字段)", msg.getMessageIndex(), variantIndex);
+                        } else {
+                            // 旧数据：如果没有variantIndex字段，通过对应的用户消息来判断
+                            int msgIndex = msg.getMessageIndex();
+                            int userMessageIndex = msgIndex - 1;
+                            
+                            // 查找对应的用户消息
+                            ConversationMessage correspondingUserMsg = null;
+                            for (ConversationMessage userMsg : historyMessages) {
+                                if (MessageType.USER.getValue().equals(userMsg.getRole()) 
+                                        && userMsg.getMessageIndex() == userMessageIndex) {
+                                    correspondingUserMsg = userMsg;
+                                    break;
+                                }
+                            }
+                            
+                            if (correspondingUserMsg == null) {
+                                log.warn("⚠️ 无法找到对应的用户消息: messageIndex={}, userMessageIndex={}, 跳过", 
+                                        msgIndex, userMessageIndex);
+                                continue;
+                            }
+                            
+                            // 检查用户消息的variantIndex或内容
+                            if (correspondingUserMsg.getVariantIndex() != null) {
+                                // 新数据：通过variantIndex判断
+                                if (!correspondingUserMsg.getVariantIndex().equals(variantIndex)) {
+                                    log.info("⏭️ 跳过非当前变体{}的AI消息: messageIndex={}, 对应的用户variantIndex={}", 
+                                            variantIndex, msgIndex, correspondingUserMsg.getVariantIndex());
+                                    continue;
+                                }
+                            } else {
+                                // 旧数据：通过内容前缀判断
+                                String userContent = correspondingUserMsg.getContent();
+                                String expectedPrefix = "变体" + variantIndex + ":";
+                                if (!userContent.startsWith(expectedPrefix)) {
+                                    log.info("⏭️ 跳过非当前变体{}的AI消息: messageIndex={}, 对应的用户消息内容={}", 
+                                            variantIndex, msgIndex, userContent.substring(0, Math.min(50, userContent.length())));
+                                    continue;
+                                }
+                            }
+                            
+                            log.info("✅ messageIndex {} 的AI消息属于当前变体{} (通过用户消息匹配)", msgIndex, variantIndex);
+                        }
+                    }
+                    
+                    String content = msg.getContent();
+                    // 如果是Prompt Lab模式，检查是否有变体前缀需要去除（旧数据兼容）
+                    if (variantIndex != null && content.startsWith("变体")) {
+                        // 去除"变体X: "前缀（如果存在）
+                        int colonIndex = content.indexOf(":");
+                        if (colonIndex > 0 && colonIndex < content.length() - 1) {
+                            content = content.substring(colonIndex + 1).trim();
+                        }
+                    }
+                    messages.add(new AssistantMessage(content));
+                    log.info("📝 添加当前模型{}的历史AI回复: {}", modelName, content.substring(0, Math.min(50, content.length())));
                 }
             }
         }
 
+        // 添加当前的用户prompt
+        // 对于Prompt Lab模式：用户消息是在saveAssistantMessage中保存的，此时可能还没有保存到数据库
+        // 对于Side-by-Side模式：用户消息是在调用createModelStream之前保存的，已经包含在历史消息中
+        // 所以：如果历史消息中没有包含当前prompt，或者messages为空，就添加当前prompt
+        if (prompt != null && !prompt.trim().isEmpty()) {
+            if (!hasCurrentUserMessage || messages.isEmpty()) {
+                messages.add(new UserMessage(prompt));
+                log.info("📝 添加当前用户prompt: {}", prompt);
+            } else {
+                log.info("⏭️ 跳过添加当前prompt（历史消息中已包含）: {}", prompt);
+            }
+        }
 
-        log.info("🚀 开始流式调用模型: {}, 上下文消息数: {}", modelName, messages.size());
-
+        log.info("🚀 开始流式调用模型: {}, 上下文消息数: {}, 当前prompt: {}", modelName, messages.size(), prompt);
+        
         // 调用Spring AI流式API
         OpenAiChatOptions.Builder optionsBuilder = OpenAiChatOptions.builder()
                 .model(modelName)
                 .temperature(ConversationConstant.DEFAULT_TEMPERATURE);
-
+        
         Prompt chatPrompt = new Prompt(messages, optionsBuilder.build());
         for (org.springframework.ai.chat.messages.Message message:messages){
             log.info("messages == {}",JSONUtil.toJsonStr(message.getText()));
@@ -390,7 +558,8 @@ public class ConversationServiceImpl implements ConversationService {
                             null,
                             null,
                             false,
-                            reasoning.get()
+                            reasoning.get(),
+                            fixedMessageIndex
                     );
 
                     log.debug("📤 发送SSE事件: model={}, contentLength={}, done=false",
@@ -444,7 +613,8 @@ public class ConversationServiceImpl implements ConversationService {
                             (int) responseTimeMs,
                             cost,
                             true,
-                            reasoning.get()
+                            reasoning.get(),
+                            fixedMessageIndex
                     );
                     doneVO.setTotalTokens(totalTokensValue);
 
@@ -465,7 +635,8 @@ public class ConversationServiceImpl implements ConversationService {
                             conversationId,
                             modelName,
                             variantIndex,
-                            errorMessage
+                            errorMessage,
+                            fixedMessageIndex
                     );
 
                     return Mono.just(ServerSentEvent.<StreamChunkVO>builder()
@@ -489,7 +660,8 @@ public class ConversationServiceImpl implements ConversationService {
             Integer responseTimeMs,
             Double cost,
             Boolean done,
-            String reasoning
+            String reasoning,
+            Integer messageIndex
     ) {
         // 计算思考时间（秒）
         Integer thinkingTime = null;
@@ -515,6 +687,7 @@ public class ConversationServiceImpl implements ConversationService {
                 .reasoning(reasoning)
                 .hasReasoning(reasoning != null && !reasoning.isEmpty())
                 .thinkingTime(thinkingTime)
+                .messageIndex(messageIndex)
                 .build();
         return chunkVO;
     }
@@ -559,14 +732,26 @@ public class ConversationServiceImpl implements ConversationService {
             String codeBlocks  // 代码块JSON（可选）
     ) {
         // 对于Prompt Lab，先保存用户的提示词变体
+        // 注意：所有变体的用户消息应该使用同一个messageIndex，但variantIndex不同
+        // 如果fixedMessageIndex不为null，说明是Prompt Lab模式，用户消息的messageIndex应该是fixedMessageIndex - 1
         if (variantIndex != null) {
+            int userMessageIndex;
+            if (fixedMessageIndex != null) {
+                // Prompt Lab模式：用户消息的messageIndex = AI消息的messageIndex - 1
+                userMessageIndex = fixedMessageIndex - 1;
+            } else {
+                // 兼容旧逻辑：获取新的messageIndex（不推荐，会导致变体分散到不同的messageIndex）
+                userMessageIndex = getNextMessageIndex(conversationId);
+            }
+            
             ConversationMessage userMessage = ConversationMessage.builder()
                     .id(IdUtil.randomUUID())
                     .conversationId(conversationId)
                     .userId(userId)
-                    .messageIndex(getNextMessageIndex(conversationId))
+                    .messageIndex(userMessageIndex)
                     .role(MessageRoleEnum.USER.getValue())
-                    .content("变体" + variantIndex + ": " + prompt)
+                    .content(prompt)  // 不再添加"变体X: "前缀，因为variantIndex字段已经标识了变体
+                    .variantIndex(variantIndex)  // 保存变体索引（用于Prompt Lab）
                     .createTime(LocalDateTime.now())
                     .updateTime(LocalDateTime.now())
                     .isDelete(0)
@@ -591,6 +776,7 @@ public class ConversationServiceImpl implements ConversationService {
                 .messageIndex(messageIndex)
                 .role(MessageRoleEnum.ASSISTANT.getValue())
                 .modelName(modelName)
+                .variantIndex(variantIndex)  // 保存变体索引（用于Prompt Lab）
                 .content(content)
                 .responseTimeMs(responseTimeMs)
                 .inputTokens(inputTokens)
@@ -620,28 +806,39 @@ public class ConversationServiceImpl implements ConversationService {
         Integer maxIndex = conversationMessageMapper.selectObjectByQueryAs(wrapper, Integer.class);
         return maxIndex == null ? 0 : maxIndex + 1;
     }
-
+    
     /**
      * 获取用于上下文的历史消息
-     *
-     * @param conversationId      会话ID
+     * 
+     * @param conversationId 会话ID
      * @param excludeMessageIndex 排除的messageIndex（当前正在创建的消息）
+     * @param variantIndex 变体索引（用于Prompt Lab模式，只加载当前变体的消息）
      * @return 历史消息列表
      */
-    private List<ConversationMessage> getHistoryMessagesForContext(String conversationId, Integer excludeMessageIndex) {
+    private List<ConversationMessage> getHistoryMessagesForContext(String conversationId, Integer excludeMessageIndex, Integer variantIndex) {
         QueryWrapper wrapper = QueryWrapper.create()
                 .from(ConversationMessage.class)
-                .where("conversationId = ? and isDelete = 0", conversationId)
-                .orderBy("messageIndex", true);
-
+                .where("conversationId = ? and isDelete = 0", conversationId);
+        
+        // 如果是Prompt Lab模式，只加载当前变体的消息
+        // 注意：为了兼容旧数据（variantIndex为null），我们加载所有消息，然后在后续处理中过滤
+        // 如果严格只加载当前变体，可以使用：wrapper.and("variantIndex = ?", variantIndex);
+        // 但为了兼容旧数据，我们暂时不在这里过滤，而是在后续处理中通过内容前缀判断
+        if (variantIndex != null) {
+            // 加载当前变体的消息，以及variantIndex为null的消息（旧数据兼容）
+            wrapper.and("(variantIndex = ? or variantIndex is null)", variantIndex);
+        }
+        
+        wrapper.orderBy("messageIndex", true);
+        
         // 如果指定了排除的index，添加过滤条件
         if (excludeMessageIndex != null) {
             wrapper.and("messageIndex < ?", excludeMessageIndex);
         }
-
+        
         List<ConversationMessage> messages = conversationMessageMapper.selectListByQuery(wrapper);
-        log.info("📚 加载历史消息: 会话ID={}, 数量={}", conversationId, messages.size());
-
+        log.info("📚 加载历史消息: 会话ID={}, variantIndex={}, 数量={}", conversationId, variantIndex, messages.size());
+        
         return messages;
     }
 
@@ -749,7 +946,8 @@ public class ConversationServiceImpl implements ConversationService {
             String conversationId,
             String modelName,
             Integer variantIndex,
-            String errorMessage
+            String errorMessage,
+            Integer messageIndex
     ) {
         return StreamChunkVO.builder()
                 .conversationId(conversationId)
@@ -759,6 +957,7 @@ public class ConversationServiceImpl implements ConversationService {
                 .hasError(true)
                 .hasReasoning(false)
                 .done(true)
+                .messageIndex(messageIndex)
                 .build();
     }
 }

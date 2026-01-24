@@ -22,4 +22,5 @@ export interface StreamChunkVO {
   reasoning?: string
   hasReasoning?: boolean
   thinkingTime?: number
+  messageIndex?: number
 }

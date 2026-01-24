@@ -13,6 +13,10 @@
             <SwapOutlined style="margin-right: 8px" />
             模型对比
           </a-select-option>
+          <a-select-option value="prompt-lab">
+            <ExperimentOutlined style="margin-right: 8px" />
+            提示词实验
+          </a-select-option>
         </a-select>
 
         <!-- 动态模型选择器 (1-8个) -->
@@ -111,7 +115,7 @@
                         :src="getProviderIcon(resp.modelName)"
                         :alt="getModelName(resp.modelName)"
                         class="model-icon"
-                        @error="(e) => (e.target as HTMLImageElement).src = '/src/assets/provider-icons/default.png'"
+                        @error="(e) => (e.target as HTMLImageElement).src = getDefaultIconUrl()"
                       />
                       <span class="model-tag">{{ getModelName(resp.modelName) }}</span>
                     </div>
@@ -295,7 +299,7 @@ import { getConversationMessages, getConversation, type StreamChunkVO } from '@/
 import { createPostSSE } from '@/utils/sseClient'
 import { API_BASE_URL } from '@/config/env'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
-import { addRating, getRating, type RatingVO } from '@/api/ratingController'
+import { addRating, getRating, getRatingsByConversationId, type RatingVO } from '@/api/ratingController'
 
 interface Msg {
   type: 'user' | 'assistant'
@@ -621,6 +625,18 @@ const sendMessage = async () => {
             // 保持isNewConversation标志，在所有消息完成后再重置
           }
 
+          // 如果chunk中包含messageIndex，更新消息的messageIndex
+          if (chunk.messageIndex !== undefined) {
+            const msg = messages.value[assistantMsgIndex]
+            if (msg && msg.messageIndex !== chunk.messageIndex) {
+              console.log('📝 更新messageIndex:', msg.messageIndex, '→', chunk.messageIndex)
+              messages.value[assistantMsgIndex] = {
+                ...messages.value[assistantMsgIndex],
+                messageIndex: chunk.messageIndex
+              }
+            }
+          }
+
           // 获取当前的assistant消息
           const msg = messages.value[assistantMsgIndex]
           console.log('🔍 当前assistant消息:', msg ? `存在，有${msg.responses?.length}个响应` : '不存在')
@@ -665,6 +681,11 @@ const sendMessage = async () => {
                 console.log('🔄 重置新会话标志')
                 isNewConversation.value = false
               }
+              // 所有响应完成后，加载评分信息
+              const conversationId = route.query.conversationId as string
+              if (conversationId && msg.messageIndex !== undefined) {
+                loadRatings(conversationId)
+              }
               // 所有响应完成后，再次滚动到底部
               scrollToBottom()
             }
@@ -696,26 +717,43 @@ const getModelName = (id: string | undefined) => {
   return id.split('/').pop() || id
 }
 
-// 根据模型ID获取提供商图标
+// 根据模型ID获取图标文件名
+const getIconFile = (modelId: string) => {
+  const provider = modelId.split('/')[0]?.toLowerCase() || ''
+  const iconMap: Record<string, string> = {
+    'openai': 'openai.png',
+    'anthropic': 'anthropic.png',
+    'google': 'google.png',
+    'meta-llama': 'meta-llama.png',
+    'qwen': 'qwen.png',
+    'alibaba': 'alibaba.png',
+    'deepseek': 'deepseek.png',
+    'baidu': 'baidu.png',
+    'zhipu': 'zhipu.png',
+    'z-ai': 'zhipu.png',
+    'moonshot': 'moonshot.png',
+    'moonshotai': 'moonshot.png',
+    'tencent': 'tencent.png',
+    'bytedance': 'bytedance.png',
+    'bytedance-seed': 'bytedance.png',
+    'meituan': 'meituan.png',
+  }
+  return iconMap[provider] || 'default.png'
+}
+
+// 获取默认图标URL
+const getDefaultIconUrl = () => {
+  return new URL('../assets/provider-icons/default.png', import.meta.url).href
+}
+
+// 根据模型ID获取提供商图标（使用和左侧列表相同的方式）
 const getProviderIcon = (modelId: string | undefined) => {
-  if (!modelId) return '/src/assets/provider-icons/default.png'
-
-  const id = modelId.toLowerCase()
-
-  // 根据模型ID匹配对应的提供商图标
-  if (id.includes('openai') || id.includes('gpt')) return '/src/assets/provider-icons/openai.png'
-  if (id.includes('anthropic') || id.includes('claude')) return '/src/assets/provider-icons/anthropic.png'
-  if (id.includes('google') || id.includes('gemini')) return '/src/assets/provider-icons/google.png'
-  if (id.includes('qwen') || id.includes('alibaba')) return '/src/assets/provider-icons/qwen.png'
-  if (id.includes('deepseek')) return '/src/assets/provider-icons/deepseek.png'
-  if (id.includes('moonshot') || id.includes('kimi')) return '/src/assets/provider-icons/moonshot.png'
-  if (id.includes('zhipu') || id.includes('glm')) return '/src/assets/provider-icons/zhipu.png'
-  if (id.includes('baidu') || id.includes('ernie')) return '/src/assets/provider-icons/baidu.png'
-  if (id.includes('tencent') || id.includes('hunyuan')) return '/src/assets/provider-icons/tencent.png'
-  if (id.includes('bytedance') || id.includes('doubao')) return '/src/assets/provider-icons/bytedance.png'
-  if (id.includes('meta') || id.includes('llama')) return '/src/assets/provider-icons/meta-llama.png'
-
-  return '/src/assets/provider-icons/default.png'
+  if (!modelId) {
+    return getDefaultIconUrl()
+  }
+  
+  const iconFile = getIconFile(modelId)
+  return new URL(`../assets/provider-icons/${iconFile}`, import.meta.url).href
 }
 
 // 复制响应内容
@@ -761,23 +799,23 @@ const calculateThinkingTime = (reasoning: string | undefined) => {
 // 判断模型按钮是否应该被选中（兼容旧的left_better/right_better类型）
 const isModelSelected = (msg: Msg, modelName: string, modelIndex: number) => {
   if (!msg.rating) return false
-  
+
   const rating = msg.rating
   // 新的model_better类型：直接比较winnerModel
   if (rating.ratingType === 'model_better' && rating.winnerModel === modelName) {
     return true
   }
-  
+
   // 兼容旧的left_better类型：第一个模型
   if (rating.ratingType === 'left_better' && modelIndex === 0) {
     return true
   }
-  
+
   // 兼容旧的right_better类型：最后一个模型
   if (rating.ratingType === 'right_better' && modelIndex === (msg.responses?.length || 0) - 1) {
     return true
   }
-  
+
   return false
 }
 
@@ -823,19 +861,26 @@ const handleRating = async (msgIndex: number, ratingType: string, winnerModelNam
     })
 
     if (res.data && res.data.code === 0) {
-      // 更新本地评分状态
-      msg.rating = {
-        id: '',
-        conversationId,
-        messageIndex: msg.messageIndex!,
-        userId: loginUser.value.id,
-        ratingType,
-        winnerModel,
-        loserModel,
-        createTime: new Date().toISOString()
+      // 直接使用本地数据更新，避免额外请求
+      const msgIndex = messages.value.findIndex(m => m === msg)
+      if (msgIndex !== -1) {
+        messages.value[msgIndex] = {
+          ...messages.value[msgIndex],
+          rating: {
+            id: '',
+            conversationId,
+            messageIndex: msg.messageIndex!,
+            userId: loginUser.value.id,
+            ratingType,
+            winnerModel,
+            loserModel,
+            createTime: new Date().toISOString()
+          }
+        }
       }
-      // 触发响应式更新
+      // 强制触发响应式更新
       messages.value = [...messages.value]
+      await nextTick()
       message.success('评分成功')
     }
   } catch (error) {
@@ -844,24 +889,56 @@ const handleRating = async (msgIndex: number, ratingType: string, winnerModelNam
   }
 }
 
-// 加载评分信息
+// 加载评分信息（带防抖，避免重复调用）
+let loadingRatings = false
+let loadingRatingsConversationId: string | null = null
 const loadRatings = async (conversationId: string) => {
-  // 为每条assistant消息加载评分
-  for (let i = 0; i < messages.value.length; i++) {
-    const msg = messages.value[i]
-    if (msg.type === 'assistant' && msg.messageIndex !== undefined) {
-      try {
-        const res: any = await getRating({ conversationId, messageIndex: msg.messageIndex })
-        if (res.data && res.data.code === 0 && res.data.data) {
-          msg.rating = res.data.data
-        }
-      } catch (error) {
-        console.error('加载评分失败:', error)
-      }
-    }
+  // 如果正在加载同一个会话的评分，直接返回
+  if (loadingRatings && loadingRatingsConversationId === conversationId) {
+    console.log('⏸️ 评分正在加载中，跳过重复调用')
+    return
   }
-  // 触发响应式更新
-  messages.value = [...messages.value]
+  
+  loadingRatings = true
+  loadingRatingsConversationId = conversationId
+  
+  try {
+    const res: any = await getRatingsByConversationId(conversationId)
+    if (res.data && res.data.code === 0 && res.data.data) {
+      const ratings = res.data.data as RatingVO[]
+      // 创建评分映射表，以messageIndex为key
+      const ratingMap = new Map<number, RatingVO>()
+      ratings.forEach(rating => {
+        ratingMap.set(rating.messageIndex, rating)
+      })
+      
+      // 更新所有assistant消息的评分
+      for (let i = 0; i < messages.value.length; i++) {
+        const msg = messages.value[i]
+        if (msg.type === 'assistant' && msg.messageIndex !== undefined) {
+          const rating = ratingMap.get(msg.messageIndex)
+          if (rating) {
+            messages.value[i] = {
+              ...messages.value[i],
+              rating: rating
+            }
+          }
+        }
+      }
+      // 触发响应式更新
+      messages.value = [...messages.value]
+    }
+  } catch (error) {
+    console.error('加载评分失败:', error)
+  } finally {
+    loadingRatings = false
+    // 延迟清除，避免快速连续调用
+    setTimeout(() => {
+      if (loadingRatingsConversationId === conversationId) {
+        loadingRatingsConversationId = null
+      }
+    }, 1000)
+  }
 }
 
 // 加载历史会话消息
@@ -886,6 +963,12 @@ const loadConversationHistory = async () => {
       console.log('📋 会话信息:', conversation)
       console.log('📋 会话类型:', conversation.conversationType)
 
+      // 检查会话类型，如果是prompt_lab类型，跳转到对应页面
+      if (conversation.conversationType === 'prompt_lab') {
+        console.log('🔄 检测到提示词实验会话，跳转到prompt-lab页面')
+        router.replace(`/prompt-lab?conversationId=${conversationId}`)
+        return
+      }
 
       console.log('📋 会话models字段:', conversation.models)
       console.log('📋 models类型:', typeof conversation.models)

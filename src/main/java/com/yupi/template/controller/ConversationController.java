@@ -8,6 +8,7 @@ import com.yupi.template.exception.ErrorCode;
 import com.yupi.template.exception.ThrowUtils;
 import com.yupi.template.model.dto.conversation.ChatRequest;
 import com.yupi.template.model.dto.conversation.CreateConversationRequest;
+import com.yupi.template.model.dto.conversation.PromptLabRequest;
 import com.yupi.template.model.dto.conversation.SideBySideRequest;
 import com.yupi.template.model.entity.Conversation;
 import com.yupi.template.model.entity.ConversationMessage;
@@ -86,6 +87,21 @@ public class ConversationController {
         log.info("Side-by-Side stream request: user={}, models={}", 
                 loginUser.getId(), request.getModels());
         return conversationService.sideBySideStream(request, loginUser.getId());
+    }
+
+    /**
+     * Prompt Lab 单模型多提示词对比 (流式响应)
+     */
+    @PostMapping(value = "/prompt-lab/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "Prompt Lab单模型多提示词对比(流式)")
+    public Flux<ServerSentEvent<StreamChunkVO>> promptLabStream(
+            @RequestBody PromptLabRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        User loginUser = userService.getLoginUser(httpRequest);
+        log.info("Prompt Lab stream request: user={}, model={}, variants={}",
+                loginUser.getId(), request.getModel(), request.getPromptVariants().size());
+        return conversationService.promptLabStream(request, loginUser.getId());
     }
 
     /**

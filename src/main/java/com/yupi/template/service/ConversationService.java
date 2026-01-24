@@ -3,6 +3,7 @@ package com.yupi.template.service;
 import com.mybatisflex.core.paginate.Page;
 import com.yupi.template.model.dto.conversation.ChatRequest;
 import com.yupi.template.model.dto.conversation.CreateConversationRequest;
+import com.yupi.template.model.dto.conversation.PromptLabRequest;
 import com.yupi.template.model.dto.conversation.SideBySideRequest;
 import com.yupi.template.model.entity.Conversation;
 import com.yupi.template.model.entity.ConversationMessage;
@@ -45,6 +46,15 @@ public interface ConversationService {
      * @return 流式响应
      */
     Flux<ServerSentEvent<StreamChunkVO>> sideBySideStream(SideBySideRequest request, Long userId);
+
+    /**
+     * Prompt Lab 单模型多提示词对比 (流式响应)
+     *
+     * @param request 请求参数
+     * @param userId  用户ID
+     * @return 流式响应
+     */
+    Flux<ServerSentEvent<StreamChunkVO>> promptLabStream(PromptLabRequest request, Long userId);
 
     /**
      * 获取对话详情

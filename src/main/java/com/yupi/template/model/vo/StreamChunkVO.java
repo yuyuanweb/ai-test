@@ -122,6 +122,12 @@ public class StreamChunkVO implements Serializable {
     @Schema(description = "思考时间（秒）")
     private Integer thinkingTime;
 
+    /**
+     * 消息索引（用于评分）
+     */
+    @Schema(description = "消息索引")
+    private Integer messageIndex;
+
     private static final long serialVersionUID = 1L;
 }
 

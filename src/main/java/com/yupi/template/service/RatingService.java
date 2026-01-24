@@ -3,6 +3,8 @@ package com.yupi.template.service;
 import com.yupi.template.model.entity.Rating;
 import com.yupi.template.model.vo.RatingVO;
 
+import java.util.List;
+
 /**
  * 评分服务接口
  *
@@ -27,6 +29,15 @@ public interface RatingService {
      * @return 评分VO
      */
     RatingVO getRating(String conversationId, Integer messageIndex, Long userId);
+
+    /**
+     * 获取用户对整个会话的所有评分
+     *
+     * @param conversationId 对话ID
+     * @param userId 用户ID
+     * @return 评分VO列表
+     */
+    List<RatingVO> getRatingsByConversationId(String conversationId, Long userId);
 
     /**
      * 删除评分
