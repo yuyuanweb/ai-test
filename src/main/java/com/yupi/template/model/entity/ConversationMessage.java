@@ -61,6 +61,12 @@ public class ConversationMessage implements Serializable {
     private String modelName;
 
     /**
+     * 变体索引(用于prompt_lab，user和assistant消息)
+     */
+    @Column("variantIndex")
+    private Integer variantIndex;
+
+    /**
      * 消息内容
      */
     @Column("content")

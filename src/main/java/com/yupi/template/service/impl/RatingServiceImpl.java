@@ -11,6 +11,8 @@ import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 评分服务实现
@@ -67,6 +69,24 @@ public class RatingServiceImpl implements RatingService {
         RatingVO ratingVO = new RatingVO();
         BeanUtil.copyProperties(rating, ratingVO);
         return ratingVO;
+    }
+
+    @Override
+    public List<RatingVO> getRatingsByConversationId(String conversationId, Long userId) {
+        QueryWrapper queryWrapper = QueryWrapper.create()
+                .from(Rating.class)
+                .where("conversationId = ? AND userId = ? AND isDelete = 0",
+                        conversationId, userId)
+                .orderBy(Rating::getMessageIndex, true);
+
+        List<Rating> ratings = ratingMapper.selectListByQuery(queryWrapper);
+        return ratings.stream()
+                .map(rating -> {
+                    RatingVO ratingVO = new RatingVO();
+                    BeanUtil.copyProperties(rating, ratingVO);
+                    return ratingVO;
+                })
+                .collect(Collectors.toList());
     }
 
     @Override

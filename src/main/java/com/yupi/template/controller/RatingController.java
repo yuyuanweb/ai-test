@@ -18,6 +18,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 /**
  * 评分接口
  *
@@ -49,7 +51,6 @@ public class RatingController {
         ThrowUtils.throwIf(StringUtils.isBlank(request.getConversationId()), ErrorCode.PARAMS_ERROR, "对话ID不能为空");
         ThrowUtils.throwIf(request.getMessageIndex() == null, ErrorCode.PARAMS_ERROR, "消息序号不能为空");
         ThrowUtils.throwIf(StringUtils.isBlank(request.getRatingType()), ErrorCode.PARAMS_ERROR, "评分类型不能为空");
-
 
         // 获取当前登录用户
         User loginUser = userService.getLoginUser(httpServletRequest);
@@ -83,8 +84,8 @@ public class RatingController {
     @GetMapping("/get")
     @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
     public BaseResponse<RatingVO> getRating(@RequestParam String conversationId,
-                                            @RequestParam Integer messageIndex,
-                                            HttpServletRequest httpServletRequest) {
+                                           @RequestParam Integer messageIndex,
+                                           HttpServletRequest httpServletRequest) {
         ThrowUtils.throwIf(StringUtils.isBlank(conversationId), ErrorCode.PARAMS_ERROR, "对话ID不能为空");
         ThrowUtils.throwIf(messageIndex == null, ErrorCode.PARAMS_ERROR, "消息序号不能为空");
 
@@ -93,6 +94,26 @@ public class RatingController {
 
         RatingVO ratingVO = ratingService.getRating(conversationId, messageIndex, loginUser.getId());
         return ResultUtils.success(ratingVO);
+    }
+
+    /**
+     * 获取整个会话的所有评分
+     *
+     * @param conversationId 对话ID
+     * @param httpServletRequest HTTP请求
+     * @return 评分VO列表
+     */
+    @GetMapping("/list")
+    @AuthCheck(mustRole = UserConstant.DEFAULT_ROLE)
+    public BaseResponse<List<RatingVO>> getRatingsByConversationId(@RequestParam String conversationId,
+                                                                     HttpServletRequest httpServletRequest) {
+        ThrowUtils.throwIf(StringUtils.isBlank(conversationId), ErrorCode.PARAMS_ERROR, "对话ID不能为空");
+
+        // 获取当前登录用户
+        User loginUser = userService.getLoginUser(httpServletRequest);
+
+        List<RatingVO> ratingVOs = ratingService.getRatingsByConversationId(conversationId, loginUser.getId());
+        return ResultUtils.success(ratingVOs);
     }
 
     /**

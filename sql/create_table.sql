@@ -61,6 +61,7 @@ create table if not exists conversation_message
     messageIndex    int                                not null comment '消息序号(从0开始)',
     role            varchar(20)                        not null comment '角色: user/assistant',
     modelName       varchar(100)                       null comment '模型名称(assistant消息)',
+    variantIndex    int                                null comment '变体索引(用于prompt_lab，user和assistant消息)',
     content         text                               not null comment '消息内容',
     responseTimeMs  int                                null comment '响应时间(毫秒)',
     inputTokens     int                                null comment '输入Token数',
@@ -73,7 +74,8 @@ create table if not exists conversation_message
     isDelete        tinyint  default 0                 not null comment '逻辑删除',
     index idx_conversation (conversationId, messageIndex),
     index idx_model (modelName, isDelete),
-    index idx_user (userId, isDelete)
+    index idx_user (userId, isDelete),
+    index idx_variant (variantIndex, isDelete)
 ) comment '对话消息表' collate = utf8mb4_unicode_ci;
 
 -- 模型信息表（存储从OpenRouter同步的模型列表）

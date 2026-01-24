@@ -18,6 +18,16 @@ public interface ConversationConstant {
     int MAX_MODELS_COUNT = 8;
 
     /**
+     * 最小提示词变体数量
+     */
+    int MIN_PROMPT_VARIANTS_COUNT = 2;
+
+    /**
+     * 最大提示词变体数量
+     */
+    int MAX_PROMPT_VARIANTS_COUNT = 5;
+
+    /**
      * 对话标题最大长度
      */
     int MAX_TITLE_LENGTH = 30;
