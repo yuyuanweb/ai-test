@@ -1,46 +1,61 @@
+// @ts-ignore
+/* eslint-disable */
 import request from '@/request'
 
-export interface RatingAddRequest {
-  conversationId: string
-  messageIndex: number
-  ratingType: string
-  winnerModel?: string
-  loserModel?: string
-  winnerVariantIndex?: number
-  loserVariantIndex?: number
-}
-
-export interface RatingVO {
-  id: string
-  conversationId: string
-  messageIndex: number
-  userId: number
-  ratingType: string
-  winnerModel?: string
-  loserModel?: string
-  winnerVariantIndex?: number
-  loserVariantIndex?: number
-  createTime: string
-}
-
-export const addRating = (data: RatingAddRequest) => {
-  return request.post('/rating/add', data)
-}
-
-export const getRating = (conversationId: string, messageIndex: number) => {
-  return request.get('/rating/get', {
-    params: { conversationId, messageIndex }
+/** 此处后端没有提供注释 POST /rating/add */
+export async function addRating(body: API.RatingAddRequest, options?: { [key: string]: any }) {
+  return request<API.BaseResponseBoolean>('/rating/add', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
   })
 }
 
-export const getRatingsByConversationId = (conversationId: string) => {
-  return request.get('/rating/list', {
-    params: { conversationId }
+/** 此处后端没有提供注释 DELETE /rating/delete */
+export async function deleteRating(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.deleteRatingParams,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseBoolean>('/rating/delete', {
+    method: 'DELETE',
+    params: {
+      ...params,
+    },
+    ...(options || {}),
   })
 }
 
-export const deleteRating = (conversationId: string, messageIndex: number) => {
-  return request.delete('/rating/delete', {
-    params: { conversationId, messageIndex }
+/** 此处后端没有提供注释 GET /rating/get */
+export async function getRating(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.getRatingParams,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseRatingVO>('/rating/get', {
+    method: 'GET',
+    params: {
+      ...params,
+    },
+    ...(options || {}),
   })
 }
+
+/** 根据对话ID获取所有评分 */
+export async function getRatingsByConversationId(conversationId: string) {
+  return request<{
+    code?: number
+    data?: API.RatingVO[]
+    message?: string
+  }>('/rating/list', {
+    method: 'GET',
+    params: {
+      conversationId,
+    },
+  })
+}
+
+export type { RatingVO, RatingAddRequest } from './typings'

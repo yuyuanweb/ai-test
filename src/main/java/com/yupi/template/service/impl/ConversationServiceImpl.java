@@ -15,18 +15,23 @@ import com.yupi.template.model.dto.conversation.ChatRequest;
 import com.yupi.template.model.dto.conversation.CreateConversationRequest;
 import com.yupi.template.model.dto.conversation.PromptLabRequest;
 import com.yupi.template.model.dto.conversation.SideBySideRequest;
+import com.yupi.template.model.dto.conversation.CodeModeRequest;
+import com.yupi.template.model.dto.conversation.CodeModePromptLabRequest;
 import com.yupi.template.model.entity.Conversation;
 import com.yupi.template.model.entity.ConversationMessage;
 import com.yupi.template.model.enums.ConversationTypeEnum;
 import com.yupi.template.model.enums.MessageRoleEnum;
 import com.yupi.template.model.vo.StreamChunkVO;
 import com.yupi.template.service.ConversationService;
+import com.yupi.template.utils.CodeExtractor;
+import com.yupi.template.model.dto.code.CodeBlock;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatOptions;
@@ -226,6 +231,95 @@ public class ConversationServiceImpl implements ConversationService {
     }
 
     @Override
+    public Flux<ServerSentEvent<StreamChunkVO>> codeModeStream(CodeModeRequest request, Long userId) {
+        // 1. 参数校验
+        validateCodeModeRequest(request);
+
+        // 2. 创建或获取对话记录（使用codePreviewEnabled=true，conversationType为side_by_side）
+        String conversationId = createOrGetConversation(
+                request.getConversationId(),
+                userId,
+                request.getPrompt(),
+                ConversationTypeEnum.SIDE_BY_SIDE,
+                request.getModels(),
+                true  // codePreviewEnabled = true
+        );
+
+        // 3. 保存用户消息
+        int userMessageIndex = saveUserMessage(conversationId, userId, request.getPrompt());
+        int assistantMessageIndex = userMessageIndex + 1;
+
+        // 4. 并行调用多个模型（带系统提示词）
+        List<Flux<ServerSentEvent<StreamChunkVO>>> modelFluxes = new ArrayList<>();
+        for (String modelName : request.getModels()) {
+            Flux<ServerSentEvent<StreamChunkVO>> modelFlux = createModelStreamWithSystemPrompt(
+                    conversationId,
+                    userId,
+                    modelName,
+                    request.getPrompt(),
+                    ConversationConstant.CODE_MODE_SYSTEM_PROMPT,
+                    assistantMessageIndex
+            );
+            modelFluxes.add(modelFlux);
+        }
+
+        // 5. 合并所有模型的流
+        int concurrency = Math.min(request.getModels().size(), 8);
+        @SuppressWarnings("unchecked")
+        Flux<ServerSentEvent<StreamChunkVO>> mergedFlux = Flux.merge(concurrency, modelFluxes.toArray(new Flux[0]));
+        return mergedFlux;
+    }
+
+    @Override
+    public Flux<ServerSentEvent<StreamChunkVO>> codeModePromptLabStream(CodeModePromptLabRequest request, Long userId) {
+        // 1. 参数校验
+        validateCodeModePromptLabRequest(request);
+
+        // 2. 创建或获取对话记录（使用codePreviewEnabled=true，conversationType为prompt_lab）
+        String conversationId = createOrGetConversation(
+                request.getConversationId(),
+                userId,
+                request.getPromptVariants().get(0),
+                ConversationTypeEnum.PROMPT_LAB,
+                Collections.singletonList(request.getModel()),
+                true  // codePreviewEnabled = true
+        );
+
+        // 3. 获取本轮对话的messageIndex（所有变体共享同一个messageIndex）
+        int userMessageIndex = getNextMessageIndex(conversationId);
+        int assistantMessageIndex = userMessageIndex + 1;
+
+        // 4. 为每个变体保存用户消息
+        for (int i = 0; i < request.getPromptVariants().size(); i++) {
+            String promptVariant = request.getPromptVariants().get(i);
+            saveUserMessage(conversationId, userId, promptVariant, userMessageIndex, i);
+            log.info("保存变体{}的用户消息: messageIndex={}, content={}", i, userMessageIndex, promptVariant);
+        }
+
+        // 5. 并行调用同一模型的不同提示词变体（使用代码模式的系统提示词）
+        List<Flux<ServerSentEvent<StreamChunkVO>>> variantFluxes = new ArrayList<>();
+        for (int i = 0; i < request.getPromptVariants().size(); i++) {
+            String promptVariant = request.getPromptVariants().get(i);
+            Flux<ServerSentEvent<StreamChunkVO>> variantFlux = createModelStreamWithSystemPrompt(
+                    conversationId,
+                    userId,
+                    request.getModel(),
+                    promptVariant,
+                    ConversationConstant.CODE_MODE_SYSTEM_PROMPT,
+                    i,  // variantIndex
+                    assistantMessageIndex  // 所有变体的AI响应使用同一个messageIndex
+            );
+            variantFluxes.add(variantFlux);
+        }
+
+        // 5. 合并所有变体的流
+        int concurrency = Math.min(request.getPromptVariants().size(), 8);
+        @SuppressWarnings("unchecked")
+        Flux<ServerSentEvent<StreamChunkVO>> mergedFlux = Flux.merge(concurrency, variantFluxes.toArray(new Flux[0]));
+        return mergedFlux;
+    }
+
+    @Override
     public Conversation getConversation(String conversationId, Long userId) {
         QueryWrapper wrapper = QueryWrapper.create()
                 .from(Conversation.class)
@@ -234,11 +328,16 @@ public class ConversationServiceImpl implements ConversationService {
     }
 
     @Override
-    public Page<Conversation> listConversations(Long userId, int pageNum, int pageSize) {
+    public Page<Conversation> listConversations(Long userId, int pageNum, int pageSize, Boolean codePreviewEnabled) {
         QueryWrapper wrapper = QueryWrapper.create()
                 .from(Conversation.class)
-                .where("userId = ? and isDelete = 0", userId)
-                .orderBy("createTime", false);
+                .where("userId = ? and isDelete = 0", userId);
+        
+        if (codePreviewEnabled != null) {
+            wrapper.and("codePreviewEnabled = ?", codePreviewEnabled);
+        }
+        
+        wrapper.orderBy("createTime", false);
         return conversationMapper.paginate(pageNum, pageSize, wrapper);
     }
 
@@ -304,6 +403,264 @@ public class ConversationServiceImpl implements ConversationService {
         }
     }
 
+    /**
+     * 校验Code Mode Prompt Lab请求
+     */
+    private void validateCodeModePromptLabRequest(CodeModePromptLabRequest request) {
+        if (request.getModel() == null || request.getModel().trim().isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型不能为空");
+        }
+        if (request.getPromptVariants() == null || request.getPromptVariants().isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "提示词变体列表不能为空");
+        }
+        if (request.getPromptVariants().size() < ConversationConstant.MIN_PROMPT_VARIANTS_COUNT ||
+                request.getPromptVariants().size() > ConversationConstant.MAX_PROMPT_VARIANTS_COUNT) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,
+                    "提示词变体数量必须在" + ConversationConstant.MIN_PROMPT_VARIANTS_COUNT + "-" +
+                            ConversationConstant.MAX_PROMPT_VARIANTS_COUNT + "个之间");
+        }
+    }
+
+
+    /**
+     * 校验Code Mode请求
+     */
+    private void validateCodeModeRequest(CodeModeRequest request) {
+        if (request.getModels() == null || request.getModels().isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "模型列表不能为空");
+        }
+        if (request.getModels().size() < ConversationConstant.MIN_MODELS_COUNT ||
+                request.getModels().size() > ConversationConstant.MAX_MODELS_COUNT) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR,
+                    "模型数量必须在" + ConversationConstant.MIN_MODELS_COUNT + "-" +
+                            ConversationConstant.MAX_MODELS_COUNT + "个之间");
+        }
+        if (request.getPrompt() == null || request.getPrompt().trim().isEmpty()) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "需求描述不能为空");
+        }
+    }
+
+    /**
+     * 创建带系统提示词的模型流（用于代码模式）
+     */
+    private Flux<ServerSentEvent<StreamChunkVO>> createModelStreamWithSystemPrompt(
+            String conversationId,
+            Long userId,
+            String modelName,
+            String userPrompt,
+            String systemPrompt,
+            Integer fixedMessageIndex
+    ) {
+        return createModelStreamWithSystemPrompt(conversationId, userId, modelName, userPrompt, systemPrompt, null, fixedMessageIndex);
+    }
+
+    /**
+     * 创建带系统提示词的模型流（用于代码模式，支持variantIndex）
+     */
+    private Flux<ServerSentEvent<StreamChunkVO>> createModelStreamWithSystemPrompt(
+            String conversationId,
+            Long userId,
+            String modelName,
+            String userPrompt,
+            String systemPrompt,
+            Integer variantIndex,
+            Integer fixedMessageIndex
+    ) {
+        AtomicLong startTime = new AtomicLong(System.currentTimeMillis());
+        AtomicInteger inputTokens = new AtomicInteger(0);
+        AtomicInteger outputTokens = new AtomicInteger(0);
+        AtomicReference<Double> totalCost = new AtomicReference<>(0.0);
+        AtomicReference<String> fullContent = new AtomicReference<>("");
+        AtomicReference<String> reasoning = new AtomicReference<>("");
+
+        List<org.springframework.ai.chat.messages.Message> messages = new ArrayList<>();
+        
+        // 添加系统提示词（在最前面）
+        if (systemPrompt != null && !systemPrompt.trim().isEmpty()) {
+            messages.add(new SystemMessage(systemPrompt));
+        }
+        
+        List<ConversationMessage> historyMessages = getHistoryMessagesForContext(conversationId, fixedMessageIndex, variantIndex);
+        
+        // 转换历史消息为Spring AI的Message格式
+        boolean hasCurrentUserMessage = false;
+        for (ConversationMessage msg : historyMessages) {
+            if (MessageType.USER.getValue().equals(msg.getRole())) {
+                String content = msg.getContent();
+                // 如果是Prompt Lab模式（variantIndex不为null），只添加当前变体的历史消息
+                if (variantIndex != null) {
+                    if (msg.getVariantIndex() != null && !msg.getVariantIndex().equals(variantIndex)) {
+                        continue;
+                    } else if (msg.getVariantIndex() == null) {
+                        String variantPrefix = "变体" + variantIndex + ":";
+                        if (!content.startsWith(variantPrefix)) {
+                            continue;
+                        }
+                        content = content.substring(variantPrefix.length()).trim();
+                    }
+                    messages.add(new UserMessage(content));
+                    if (content.equals(userPrompt)) {
+                        hasCurrentUserMessage = true;
+                    }
+                } else {
+                    messages.add(new UserMessage(content));
+                    if (content.equals(userPrompt)) {
+                        hasCurrentUserMessage = true;
+                    }
+                }
+            } else if (MessageType.ASSISTANT.getValue().equals(msg.getRole())) {
+                if (modelName.equals(msg.getModelName())) {
+                    if (variantIndex != null) {
+                        if (msg.getVariantIndex() != null && !msg.getVariantIndex().equals(variantIndex)) {
+                            continue;
+                        }
+                    }
+                    String content = msg.getContent();
+                    if (variantIndex != null && content.startsWith("变体")) {
+                        int colonIndex = content.indexOf(":");
+                        if (colonIndex > 0 && colonIndex < content.length() - 1) {
+                            content = content.substring(colonIndex + 1).trim();
+                        }
+                    }
+                    messages.add(new AssistantMessage(content));
+                }
+            }
+        }
+        
+        // 添加当前的用户prompt
+        if (userPrompt != null && !userPrompt.trim().isEmpty()) {
+            if (!hasCurrentUserMessage || messages.size() == 1) {  // 只有系统提示词时也要添加
+                messages.add(new UserMessage(userPrompt));
+            }
+        }
+        
+        log.info("🚀 代码模式流式调用: model={}, 上下文消息数: {}, 系统提示词长度: {}", 
+                modelName, messages.size(), systemPrompt.length());
+        
+        OpenAiChatOptions.Builder optionsBuilder = OpenAiChatOptions.builder()
+                .model(modelName)
+                .temperature(ConversationConstant.DEFAULT_TEMPERATURE);
+        
+        Prompt chatPrompt = new Prompt(messages, optionsBuilder.build());
+
+        return chatModel.stream(chatPrompt)
+                .doOnNext(chatResponse -> {
+                    String content = chatResponse.getResult().getOutput().getText();
+                    log.info("📦 {}收到流式块: '{}' ({} 字符)", modelName, content, content != null ? content.length() : 0);
+                })
+                .map(chatResponse -> {
+                    String content = chatResponse.getResult().getOutput().getText();
+                    fullContent.updateAndGet(prev -> prev + content);
+                    
+                    if (chatResponse.getResult() != null && chatResponse.getResult().getOutput() != null) {
+                        Map<String, Object> outputMetadata = chatResponse.getResult().getOutput().getMetadata();
+                        if (outputMetadata != null && outputMetadata.containsKey("reasoningContent")) {
+                            Object reasoningObj = outputMetadata.get("reasoningContent");
+                            if (reasoningObj != null) {
+                                reasoning.updateAndGet(prev -> prev + reasoningObj.toString());
+                            }
+                        }
+                    }
+
+                    if (chatResponse.getMetadata() != null && chatResponse.getMetadata().getUsage() != null) {
+                        Usage usage = chatResponse.getMetadata().getUsage();
+                        if (usage.getPromptTokens() != null) {
+                            inputTokens.set(usage.getPromptTokens());
+                        }
+                        if (usage.getCompletionTokens() != null) {
+                            outputTokens.set(usage.getCompletionTokens());
+                        }
+                    }
+
+                    StreamChunkVO chunkVO = buildStreamChunk(
+                            conversationId,
+                            modelName,
+                            variantIndex,
+                            content,
+                            fullContent.get(),
+                            inputTokens.get(),
+                            outputTokens.get(),
+                            System.currentTimeMillis() - startTime.get(),
+                            null,
+                            null,
+                            false,
+                            reasoning.get(),
+                            fixedMessageIndex
+                    );
+
+                    return ServerSentEvent.<StreamChunkVO>builder()
+                            .data(chunkVO)
+                            .build();
+                })
+                .concatWith(Mono.defer(() -> {
+                    long responseTimeMs = System.currentTimeMillis() - startTime.get();
+                    
+                    Double cost = totalCost.get();
+                    if (cost == null || cost == 0.0) {
+                        cost = calculateCostByModel(modelName, inputTokens.get(), outputTokens.get());
+                    }
+                    
+                    // 提取代码块并序列化为JSON
+                    String codeBlocksJson = null;
+                    if (fullContent.get() != null && !fullContent.get().isEmpty()) {
+                        List<CodeBlock> codeBlocks = CodeExtractor.extractCodeBlocks(fullContent.get());
+                        if (codeBlocks != null && !codeBlocks.isEmpty()) {
+                            codeBlocksJson = JSONUtil.toJsonStr(codeBlocks);
+                            log.info("💾 保存代码块: 模型={}, 代码块数={}", modelName, codeBlocks.size());
+                        }
+                    }
+                    
+                    saveAssistantMessage(
+                            conversationId,
+                            userId,
+                            modelName,
+                            userPrompt,
+                            fullContent.get(),
+                            variantIndex,
+                            (int) responseTimeMs,
+                            inputTokens.get(),
+                            outputTokens.get(),
+                            fixedMessageIndex,
+                            reasoning.get(),
+                            codeBlocksJson
+                    );
+
+                    int totalTokensValue = inputTokens.get() + outputTokens.get();
+                    StreamChunkVO doneVO = buildStreamChunk(
+                            conversationId,
+                            modelName,
+                            variantIndex,
+                            null,
+                            fullContent.get(),
+                            inputTokens.get(),
+                            outputTokens.get(),
+                            null,
+                            (int) responseTimeMs,
+                            cost,
+                            true,
+                            reasoning.get(),
+                            fixedMessageIndex
+                    );
+                    doneVO.setTotalTokens(totalTokensValue);
+
+                    return Mono.just(ServerSentEvent.<StreamChunkVO>builder()
+                            .data(doneVO)
+                            .build());
+                }))
+                .onErrorResume(error -> {
+                    log.error("模型{}调用失败", modelName, error);
+                    StreamChunkVO errorVO = buildErrorChunk(
+                            conversationId,
+                            modelName,
+                            variantIndex,
+                            extractErrorMessage(error),
+                            fixedMessageIndex
+                    );
+                    return Mono.just(ServerSentEvent.<StreamChunkVO>builder()
+                            .data(errorVO)
+                            .build());
+                });
+    }
 
     /**
      * 创建或获取对话记录
@@ -315,14 +672,26 @@ public class ConversationServiceImpl implements ConversationService {
             ConversationTypeEnum conversationType,
             List<String> models
     ) {
+        return createOrGetConversation(existingConversationId, userId, prompt, conversationType, models, false);
+    }
+
+    /**
+     * 创建或获取对话记录（支持codePreviewEnabled参数）
+     */
+    private String createOrGetConversation(
+            String existingConversationId,
+            Long userId,
+            String prompt,
+            ConversationTypeEnum conversationType,
+            List<String> models,
+            boolean codePreviewEnabled
+    ) {
         if (existingConversationId != null && !existingConversationId.isEmpty()) {
             return existingConversationId;
         }
 
         String conversationId = IdUtil.randomUUID();
-
-        boolean codePreviewEnabled = ConversationTypeEnum.CODE_MODE.equals(conversationType);
-
+        
         Conversation conversation = Conversation.builder()
                 .id(conversationId)
                 .userId(userId)
@@ -580,10 +949,17 @@ public class ConversationServiceImpl implements ConversationService {
                         log.warn("API未返回cost，使用模型价格计算: {}", modelName);
                         cost = calculateCostByModel(modelName, inputTokens.get(), outputTokens.get());
                     }
-
-                    // 代码块提取功能暂未实现
+                    
+                    // 提取代码块并序列化为JSON
                     String codeBlocksJson = null;
-
+                    if (fullContent.get() != null && !fullContent.get().isEmpty()) {
+                        List<CodeBlock> codeBlocks = CodeExtractor.extractCodeBlocks(fullContent.get());
+                        if (codeBlocks != null && !codeBlocks.isEmpty()) {
+                            codeBlocksJson = JSONUtil.toJsonStr(codeBlocks);
+                            log.info("保存代码块: 模型={}, 代码块数={}", modelName, codeBlocks.size());
+                        }
+                    }
+                    
                     saveAssistantMessage(
                             conversationId,
                             userId,
@@ -669,9 +1045,34 @@ public class ConversationServiceImpl implements ConversationService {
             // 简单估算：每200个字符约1秒，最少1秒，最多60秒
             thinkingTime = Math.max(1, Math.min(reasoning.length() / 200, 60));
         }
-
-        // 代码块提取功能暂未实现（将在阶段4添加）
-
+        
+        // 提取代码块（仅在完成时提取，避免流式过程中重复提取）
+        List<CodeBlock> codeBlocks = null;
+        Boolean hasCodeBlocks = false;
+        if (done != null && done && fullContent != null && !fullContent.isEmpty()) {
+            log.info("开始提取代码块，fullContent长度: {}", fullContent.length());
+            log.debug("fullContent内容: {}", fullContent.substring(0, Math.min(500, fullContent.length())));
+            
+            codeBlocks = CodeExtractor.extractCodeBlocks(fullContent);
+            
+            log.info("提取结果: codeBlocks={}, size={}", 
+                codeBlocks == null ? "null" : "not null", 
+                codeBlocks == null ? 0 : codeBlocks.size());
+            
+            hasCodeBlocks = codeBlocks != null && !codeBlocks.isEmpty();
+            if (hasCodeBlocks) {
+                log.info("从响应中提取到 {} 个代码块", codeBlocks.size());
+                for (int i = 0; i < codeBlocks.size(); i++) {
+                    CodeBlock block = codeBlocks.get(i);
+                    log.info("   代码块[{}]: language={}, codeLength={}", 
+                        i, block.getLanguage(), block.getCode() == null ? 0 : block.getCode().length());
+                }
+            } else {
+                log.warn("未提取到代码块！fullContent可能不包含```代码块格式");
+                log.debug("fullContent内容:\n{}", fullContent);
+            }
+        }
+        
         StreamChunkVO chunkVO = StreamChunkVO.builder()
                 .conversationId(conversationId)
                 .modelName(modelName)
@@ -688,6 +1089,8 @@ public class ConversationServiceImpl implements ConversationService {
                 .hasReasoning(reasoning != null && !reasoning.isEmpty())
                 .thinkingTime(thinkingTime)
                 .messageIndex(messageIndex)
+                .codeBlocks(codeBlocks)
+                .hasCodeBlocks(hasCodeBlocks)
                 .build();
         return chunkVO;
     }
@@ -699,6 +1102,15 @@ public class ConversationServiceImpl implements ConversationService {
      */
     private int saveUserMessage(String conversationId, Long userId, String content) {
         int messageIndex = getNextMessageIndex(conversationId);
+        return saveUserMessage(conversationId, userId, content, messageIndex, null);
+    }
+
+    /**
+     * 保存用户消息（支持variantIndex）
+     *
+     * @return 返回保存的消息的messageIndex
+     */
+    private int saveUserMessage(String conversationId, Long userId, String content, int messageIndex, Integer variantIndex) {
         ConversationMessage message = ConversationMessage.builder()
                 .id(IdUtil.randomUUID())
                 .conversationId(conversationId)
@@ -706,6 +1118,7 @@ public class ConversationServiceImpl implements ConversationService {
                 .messageIndex(messageIndex)
                 .role(MessageRoleEnum.USER.getValue())
                 .content(content)
+                .variantIndex(variantIndex)
                 .createTime(LocalDateTime.now())
                 .updateTime(LocalDateTime.now())
                 .isDelete(0)
@@ -732,17 +1145,12 @@ public class ConversationServiceImpl implements ConversationService {
             String codeBlocks  // 代码块JSON（可选）
     ) {
         // 对于Prompt Lab，先保存用户的提示词变体
-        // 注意：所有变体的用户消息应该使用同一个messageIndex，但variantIndex不同
-        // 如果fixedMessageIndex不为null，说明是Prompt Lab模式，用户消息的messageIndex应该是fixedMessageIndex - 1
-        if (variantIndex != null) {
-            int userMessageIndex;
-            if (fixedMessageIndex != null) {
-                // Prompt Lab模式：用户消息的messageIndex = AI消息的messageIndex - 1
-                userMessageIndex = fixedMessageIndex - 1;
-            } else {
-                // 兼容旧逻辑：获取新的messageIndex（不推荐，会导致变体分散到不同的messageIndex）
-                userMessageIndex = getNextMessageIndex(conversationId);
-            }
+        // 注意：在codeModePromptLabStream中，用户消息已经在调用createModelStreamWithSystemPrompt之前保存了
+        // 所以这里不再重复保存用户消息，避免重复
+        // 如果variantIndex不为null但fixedMessageIndex为null，说明是旧的Prompt Lab逻辑，需要保存用户消息
+        if (variantIndex != null && fixedMessageIndex == null) {
+            // 兼容旧逻辑：获取新的messageIndex（不推荐，会导致变体分散到不同的messageIndex）
+            int userMessageIndex = getNextMessageIndex(conversationId);
             
             ConversationMessage userMessage = ConversationMessage.builder()
                     .id(IdUtil.randomUUID())

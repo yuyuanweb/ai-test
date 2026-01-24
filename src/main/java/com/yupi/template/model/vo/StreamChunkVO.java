@@ -1,5 +1,6 @@
 package com.yupi.template.model.vo;
 
+import com.yupi.template.model.dto.code.CodeBlock;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -7,6 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.io.Serializable;
+import java.util.List;
 
 /**
  * 流式响应数据块 VO
@@ -127,6 +129,18 @@ public class StreamChunkVO implements Serializable {
      */
     @Schema(description = "消息索引")
     private Integer messageIndex;
+
+    /**
+     * 代码块列表
+     */
+    @Schema(description = "代码块列表")
+    private List<CodeBlock> codeBlocks;
+
+    /**
+     * 是否包含代码块
+     */
+    @Schema(description = "是否包含代码块")
+    private Boolean hasCodeBlocks;
 
     private static final long serialVersionUID = 1L;
 }

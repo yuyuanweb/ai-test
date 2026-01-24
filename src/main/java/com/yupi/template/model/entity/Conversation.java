@@ -43,7 +43,7 @@ public class Conversation implements Serializable {
     private String title;
 
     /**
-     * 对话类型: side_by_side/prompt_lab
+     * 对话类型: side_by_side/prompt_lab/code_mode
      */
     @Column("conversationType")
     private String conversationType;

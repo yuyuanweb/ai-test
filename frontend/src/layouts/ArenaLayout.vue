@@ -25,7 +25,7 @@
             v-for="conv in todayConversations"
             :key="conv.id"
             class="history-item"
-            @click="openConversation(conv.id, conv.conversationType)"
+            @click="openConversation(conv.id, conv.conversationType, conv.codePreviewEnabled)"
           >
             <!-- 根据会话类型显示不同的图标（左侧，固定宽度区域内右对齐） -->
             <div v-if="conv.conversationType === 'prompt_lab'" class="conversation-type-icon">
@@ -71,7 +71,7 @@
             v-for="conv in yesterdayConversations"
             :key="conv.id"
             class="history-item"
-            @click="openConversation(conv.id, conv.conversationType)"
+            @click="openConversation(conv.id, conv.conversationType, conv.codePreviewEnabled)"
           >
             <!-- 根据会话类型显示不同的图标（左侧，固定宽度区域内右对齐） -->
             <div v-if="conv.conversationType === 'prompt_lab'" class="conversation-type-icon">
@@ -117,7 +117,7 @@
             v-for="conv in olderConversations"
             :key="conv.id"
             class="history-item"
-            @click="openConversation(conv.id, conv.conversationType)"
+            @click="openConversation(conv.id, conv.conversationType, conv.codePreviewEnabled)"
           >
             <!-- 根据会话类型显示不同的图标（左侧，固定宽度区域内右对齐） -->
             <div v-if="conv.conversationType === 'prompt_lab'" class="conversation-type-icon">
@@ -312,10 +312,13 @@ const handleNewChat = () => {
   router.push(`/side-by-side?t=${Date.now()}`)
 }
 
-const openConversation = (id: string, conversationType?: string) => {
+const openConversation = (id: string, conversationType?: string, codePreviewEnabled?: boolean) => {
+  // 根据会话类型和代码预览标识跳转到对应页面
   let page = 'side-by-side'
   
-  if (conversationType === 'prompt_lab') {
+  if (codePreviewEnabled) {
+    page = 'code-mode'
+  } else if (conversationType === 'prompt_lab') {
     page = 'prompt-lab'
   }
   

@@ -10,6 +10,8 @@ import com.yupi.template.model.dto.conversation.ChatRequest;
 import com.yupi.template.model.dto.conversation.CreateConversationRequest;
 import com.yupi.template.model.dto.conversation.PromptLabRequest;
 import com.yupi.template.model.dto.conversation.SideBySideRequest;
+import com.yupi.template.model.dto.conversation.CodeModeRequest;
+import com.yupi.template.model.dto.conversation.CodeModePromptLabRequest;
 import com.yupi.template.model.entity.Conversation;
 import com.yupi.template.model.entity.ConversationMessage;
 import com.yupi.template.model.entity.User;
@@ -105,6 +107,36 @@ public class ConversationController {
     }
 
     /**
+     * Code Mode 代码模式 (流式响应)
+     */
+    @PostMapping(value = "/code-mode/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "代码模式(流式)")
+    public Flux<ServerSentEvent<StreamChunkVO>> codeModeStream(
+            @RequestBody CodeModeRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        User loginUser = userService.getLoginUser(httpRequest);
+        log.info("Code Mode stream request: user={}, models={}",
+                loginUser.getId(), request.getModels());
+        return conversationService.codeModeStream(request, loginUser.getId());
+    }
+
+    /**
+     * Code Mode 提示词实验 (流式响应) - 代码模式下的多提示词对比
+     */
+    @PostMapping(value = "/code-mode/prompt-lab/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "代码模式提示词实验(流式)")
+    public Flux<ServerSentEvent<StreamChunkVO>> codeModePromptLabStream(
+            @RequestBody CodeModePromptLabRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        User loginUser = userService.getLoginUser(httpRequest);
+        log.info("Code Mode Prompt Lab stream request: user={}, model={}, variants={}",
+                loginUser.getId(), request.getModel(), request.getPromptVariants().size());
+        return conversationService.codeModePromptLabStream(request, loginUser.getId());
+    }
+
+    /**
      * 获取对话详情
      */
     @GetMapping("/get")
@@ -126,10 +158,12 @@ public class ConversationController {
     public BaseResponse<Page<Conversation>> listConversations(
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "10") int pageSize,
+            @RequestParam(required = false) Integer codePreviewEnabled,
             HttpServletRequest httpRequest
     ) {
         User loginUser = userService.getLoginUser(httpRequest);
-        Page<Conversation> page = conversationService.listConversations(loginUser.getId(), pageNum, pageSize);
+        Boolean codePreviewEnabledBool = codePreviewEnabled != null ? (codePreviewEnabled == 1) : null;
+        Page<Conversation> page = conversationService.listConversations(loginUser.getId(), pageNum, pageSize, codePreviewEnabledBool);
         return ResultUtils.success(page);
     }
 

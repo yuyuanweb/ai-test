@@ -114,6 +114,14 @@ export async function userRegister(
   })
 }
 
+/** 此处后端没有提供注释 GET /user/test/auto-restart */
+export async function testAutoRestart(options?: { [key: string]: any }) {
+  return request<API.BaseResponseString>('/user/test/auto-restart', {
+    method: 'GET',
+    ...(options || {}),
+  })
+}
+
 /** 此处后端没有提供注释 POST /user/update */
 export async function updateUser(body: API.UserUpdateRequest, options?: { [key: string]: any }) {
   return request<API.BaseResponseBoolean>('/user/update', {

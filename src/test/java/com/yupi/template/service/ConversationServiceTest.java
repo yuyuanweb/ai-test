@@ -77,7 +77,7 @@ class ConversationServiceTest {
         }
 
         // 查询列表
-        Page<Conversation> page = conversationService.listConversations(TEST_USER_ID, 1, 10);
+        Page<Conversation> page = conversationService.listConversations(TEST_USER_ID, 1, 10, null);
         
         assertNotNull(page, "分页结果不应为空");
         assertTrue(page.getTotalRow() >= 3, "至少应有3条记录");

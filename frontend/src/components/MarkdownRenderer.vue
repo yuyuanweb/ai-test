@@ -1,6 +1,13 @@
 <template>
   <div class="markdown-renderer">
-    <div class="markdown-body" v-html="renderedContent"></div>
+    <!-- 混合渲染：普通文本和代码块交替显示 -->
+    <template v-for="(segment, index) in contentSegments" :key="index">
+      <!-- 普通Markdown文本 -->
+      <div v-if="segment.type === 'text'" class="markdown-body" v-html="segment.html"></div>
+      
+      <!-- 代码块预览组件 -->
+      <CodePreview v-else-if="segment.type === 'code'" :code-block="segment.block" />
+    </template>
   </div>
 </template>
 
@@ -13,7 +20,9 @@
 import { computed } from 'vue'
 import { marked } from 'marked'
 import hljs from 'highlight.js/lib/core'
+import CodePreview from './CodePreview.vue'
 
+// 注册更多语言支持
 import javascript from 'highlight.js/lib/languages/javascript'
 import typescript from 'highlight.js/lib/languages/typescript'
 import python from 'highlight.js/lib/languages/python'
@@ -45,32 +54,124 @@ hljs.registerLanguage('html', xml)
 hljs.registerLanguage('css', css)
 hljs.registerLanguage('markdown', markdown)
 
+interface CodeBlock {
+  language: string
+  code: string
+  sanitizedHtml?: string
+}
+
+interface ContentSegment {
+  type: 'text' | 'code'
+  html?: string
+  block?: CodeBlock
+}
+
 const props = defineProps<{
   content: string
+  codeBlocks?: CodeBlock[]
 }>()
 
+// 配置marked（代码块将由CodePreview组件处理，这里不高亮）
 marked.setOptions({
   breaks: true,
   gfm: true,
-  highlight: (code: string, lang: string) => {
-    if (lang && hljs.getLanguage(lang)) {
-      try {
-        return hljs.highlight(code, { language: lang }).value
-      } catch (err) {
-        console.error('代码高亮失败:', err)
-      }
-    }
-    return code
-  }
 })
 
-const renderedContent = computed(() => {
-  if (!props.content) return ''
+/**
+ * 从内容中提取代码块
+ */
+const extractCodeBlocks = (text: string): CodeBlock[] => {
+  const codeBlockPattern = /```(\w*)\n([\s\S]*?)```/g
+  const blocks: CodeBlock[] = []
+  let match
+
+  while ((match = codeBlockPattern.exec(text)) !== null) {
+    const language = match[1] || 'text'
+    const code = match[2]
+    
+    blocks.push({
+      language: language.toLowerCase(),
+      code: code,
+      sanitizedHtml: language.toLowerCase() === 'html' ? code : undefined
+    })
+  }
+
+  return blocks
+}
+
+/**
+ * 将内容分割成文本和代码块片段
+ */
+const contentSegments = computed((): ContentSegment[] => {
+  if (!props.content) return []
+
   try {
-    return marked(props.content)
+    // 提取所有代码块
+    const extractedBlocks = extractCodeBlocks(props.content)
+    
+    if (extractedBlocks.length === 0) {
+      // 没有代码块，直接渲染整个内容
+      return [{
+        type: 'text',
+        html: marked(props.content)
+      }]
+    }
+
+    // 有代码块，需要分割内容
+    const segments: ContentSegment[] = []
+    const codeBlockPattern = /```\w*\n[\s\S]*?```/g
+    
+    let lastIndex = 0
+    let blockIndex = 0
+    let match
+
+    const content = props.content
+    // 重置正则的lastIndex
+    codeBlockPattern.lastIndex = 0
+
+    while ((match = codeBlockPattern.exec(content)) !== null) {
+      // 添加代码块之前的文本
+      if (match.index > lastIndex) {
+        const textContent = content.substring(lastIndex, match.index)
+        if (textContent.trim()) {
+          segments.push({
+            type: 'text',
+            html: marked(textContent)
+          })
+        }
+      }
+
+      // 添加代码块
+      if (blockIndex < extractedBlocks.length) {
+        segments.push({
+          type: 'code',
+          block: extractedBlocks[blockIndex]
+        })
+        blockIndex++
+      }
+
+      lastIndex = match.index + match[0].length
+    }
+
+    // 添加最后剩余的文本
+    if (lastIndex < content.length) {
+      const textContent = content.substring(lastIndex)
+      if (textContent.trim()) {
+        segments.push({
+          type: 'text',
+          html: marked(textContent)
+        })
+      }
+    }
+
+    return segments
+
   } catch (err) {
-    console.error('Markdown渲染失败:', err)
-    return props.content
+    console.error('内容分割失败:', err)
+    return [{
+      type: 'text',
+      html: marked(props.content)
+    }]
   }
 })
 </script>
@@ -87,6 +188,7 @@ const renderedContent = computed(() => {
   word-wrap: break-word;
 }
 
+/* 思考内容中的markdown样式更小 */
 .thinking-content .markdown-body {
   font-size: 12px;
   color: #4b5563;
@@ -101,6 +203,7 @@ const renderedContent = computed(() => {
   font-size: 11px;
 }
 
+/* 标题样式 */
 .markdown-body :deep(h1),
 .markdown-body :deep(h2),
 .markdown-body :deep(h3),
@@ -130,11 +233,13 @@ const renderedContent = computed(() => {
   font-size: 1.25em;
 }
 
+/* 段落样式 */
 .markdown-body :deep(p) {
   margin-top: 0;
   margin-bottom: 16px;
 }
 
+/* 列表样式 */
 .markdown-body :deep(ul),
 .markdown-body :deep(ol) {
   margin-top: 0;
@@ -146,6 +251,7 @@ const renderedContent = computed(() => {
   margin-top: 0.25em;
 }
 
+/* 代码块样式（深色主题） */
 .markdown-body :deep(pre) {
   background-color: #0d1117 !important;
   border-radius: 8px;
@@ -178,6 +284,7 @@ const renderedContent = computed(() => {
   font-weight: 500;
 }
 
+/* highlight.js 语法高亮增强（GitHub Dark主题配色） */
 .markdown-body :deep(.hljs) {
   background: transparent !important;
 }
@@ -231,6 +338,7 @@ const renderedContent = computed(() => {
   color: #ffa657;
 }
 
+/* 引用样式 */
 .markdown-body :deep(blockquote) {
   margin: 0 0 16px 0;
   padding: 0 1em;
@@ -238,6 +346,7 @@ const renderedContent = computed(() => {
   border-left: 0.25em solid #d1d5db;
 }
 
+/* 链接样式 */
 .markdown-body :deep(a) {
   color: #58a6ff;
   text-decoration: none;
@@ -247,6 +356,7 @@ const renderedContent = computed(() => {
   text-decoration: underline;
 }
 
+/* 表格样式 */
 .markdown-body :deep(table) {
   border-collapse: collapse;
   width: 100%;
@@ -264,6 +374,7 @@ const renderedContent = computed(() => {
   background-color: #f3f4f6;
 }
 
+/* 水平线样式 */
 .markdown-body :deep(hr) {
   height: 0.25em;
   padding: 0;
@@ -272,6 +383,7 @@ const renderedContent = computed(() => {
   border: 0;
 }
 
+/* 图片样式 */
 .markdown-body :deep(img) {
   max-width: 100%;
   box-sizing: content-box;
