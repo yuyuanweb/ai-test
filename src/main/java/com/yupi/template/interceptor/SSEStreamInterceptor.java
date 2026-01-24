@@ -70,15 +70,15 @@ public class SSEStreamInterceptor {
                                 // 抛出异常，让调用方知道发生了错误
                                 return Mono.error(new RuntimeException("API Error: " + errorMessage));
                             }
-
+                            
                             // 不是错误，重新构建响应
                             DataBufferFactory bufferFactory = new DefaultDataBufferFactory();
                             DataBuffer buffer = bufferFactory.wrap(body.getBytes(StandardCharsets.UTF_8));
-
+                            
                             ClientResponse newResponse = ClientResponse.from(clientResponse)
                                     .body(Flux.just(buffer))
                                     .build();
-
+                            
                             return Mono.just(newResponse);
                         })
                         .onErrorResume(error -> {
@@ -244,9 +244,6 @@ public class SSEStreamInterceptor {
                 // 使用简单的字符串替换，保持原有格式和顺序
                 String result = chunk.replaceAll("\"reasoning\":", "\"reasoning_content\":");
 
-                // 移除reasoning_details字段（如果存在）
-                result = removeReasoningDetails(result);
-
                 log.debug("reasoning字段转换完成");
                 return result;
             }
@@ -255,31 +252,12 @@ public class SSEStreamInterceptor {
             return chunk;
 
         } catch (Exception e) {
-            log.debug("转换数据块时出错，返回原始数据: {}", e.getMessage());
+            log.error("转换数据块时出错，返回原始数据: {}", e.getMessage());
             return chunk;
         }
     }
 
-    /**
-     * 移除reasoning_details字段，保持JSON结构完整
-     */
-    private static String removeReasoningDetails(String jsonStr) {
-        try {
-            // 使用正则表达式移除reasoning_details字段
-            // 匹配 "reasoning_details":[...] 或 "reasoning_details":{...}
-            String pattern = ",?\\s*\"reasoning_details\"\\s*:\\s*\\[[^\\]]*\\]";
-            String result = jsonStr.replaceAll(pattern, "");
 
-            // 处理可能的多余逗号
-            result = result.replaceAll(",\\s*}", "}");
-            result = result.replaceAll(",\\s*]", "]");
-
-            return result;
-        } catch (Exception e) {
-            log.debug("移除reasoning_details失败，返回原始数据: {}", e.getMessage());
-            return jsonStr;
-        }
-    }
 
 
     /**

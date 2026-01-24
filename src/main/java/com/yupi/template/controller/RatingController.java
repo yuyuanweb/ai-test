@@ -52,6 +52,7 @@ public class RatingController {
         ThrowUtils.throwIf(request.getMessageIndex() == null, ErrorCode.PARAMS_ERROR, "消息序号不能为空");
         ThrowUtils.throwIf(StringUtils.isBlank(request.getRatingType()), ErrorCode.PARAMS_ERROR, "评分类型不能为空");
 
+
         // 获取当前登录用户
         User loginUser = userService.getLoginUser(httpServletRequest);
 

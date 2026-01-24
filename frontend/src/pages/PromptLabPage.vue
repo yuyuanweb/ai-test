@@ -48,7 +48,7 @@
         <div v-for="(msg, idx) in messages" :key="`msg-${idx}-${msg.type}-${msg.messageIndex || 0}`" class="msg-block">
           <!-- 用户消息 - 显示多个变体 -->
           <div v-if="msg.type === 'user'" class="user-msg">
-            <div 
+            <div
               class="user-variants"
               :style="{
                 display: 'flex',
@@ -59,7 +59,7 @@
                 overflowX: 'auto'
               }"
             >
-              <div
+        <div
                 v-for="(variant, vIdx) in msg.variants"
                 :key="vIdx"
                 class="variant-bubble"
@@ -80,31 +80,31 @@
             <!-- 评分按钮 -->
             <div
               v-if="msg.results.length > 0 && msg.results.every(r => r.done)"
-              class="rating-section"
-            >
-              <div class="rating-title">选择最佳变体：</div>
-              <div class="rating-buttons">
-                <button
+          class="rating-section"
+        >
+          <div class="rating-title">选择最佳变体：</div>
+          <div class="rating-buttons">
+            <button
                   v-for="(result, rIdx) in msg.results"
                   :key="rIdx"
-                  class="rating-btn variant-rating-btn"
+              class="rating-btn variant-rating-btn"
                   :class="{ 'rating-selected': msg.rating?.winnerVariantIndex === rIdx }"
                   @click="handleVariantRating(msg, rIdx)"
-                >
+            >
                   变体 {{ rIdx + 1 }}
-                </button>
-                <button
-                  class="rating-btn"
+            </button>
+            <button
+              class="rating-btn"
                   :class="{ 'rating-selected': msg.rating?.ratingType === 'both_bad' }"
                   @click="handleVariantRating(msg, -1)"
-                >
-                  都不好 👎
-                </button>
-              </div>
-            </div>
+            >
+              都不好 👎
+            </button>
+          </div>
+        </div>
 
             <!-- 变体结果网格 -->
-            <div 
+            <div
               class="results-grid"
               :style="{
                 display: 'flex',
@@ -126,33 +126,33 @@
                   boxSizing: 'border-box'
                 }"
               >
-                <div class="result-header">
+            <div class="result-header">
                   <span class="variant-badge">变体 {{ rIdx + 1 }}</span>
-                  <div class="stats-row">
-                    <span v-if="result.responseTimeMs">⏱ {{ (result.responseTimeMs / 1000).toFixed(2) }}s</span>
-                    <span v-if="result.totalTokens">📊 {{ result.totalTokens }}t</span>
-                    <span v-if="result.cost">💰 ${{ result.cost.toFixed(4) }}</span>
-                  </div>
-                </div>
+              <div class="stats-row">
+                <span v-if="result.responseTimeMs">⏱ {{ (result.responseTimeMs / 1000).toFixed(2) }}s</span>
+                <span v-if="result.totalTokens">📊 {{ result.totalTokens }}t</span>
+                <span v-if="result.cost">💰 ${{ result.cost.toFixed(4) }}</span>
+              </div>
+            </div>
 
-                <div class="result-content">
+            <div class="result-content">
                   <div v-if="result.hasError" class="error-msg">{{ result.error }}</div>
-                  <template v-else>
-                    <!-- 思考过程 -->
-                    <details v-if="result.hasReasoning && result.reasoning" class="thinking-details" open>
-                      <summary class="thinking-summary">
-                        思考了 {{ result.thinkingTime || 1 }} 秒
-                      </summary>
-                      <div class="thinking-content">
-                        <MarkdownRenderer :content="result.reasoning || ''" />
-                      </div>
-                    </details>
-                    <!-- 最终回答 -->
-                    <MarkdownRenderer :content="result.fullContent || ''" />
-                  </template>
+              <template v-else>
+                <!-- 思考过程 -->
+                <details v-if="result.hasReasoning && result.reasoning" class="thinking-details" open>
+                  <summary class="thinking-summary">
+                    思考了 {{ result.thinkingTime || 1 }} 秒
+                  </summary>
+                  <div class="thinking-content">
+                    <MarkdownRenderer :content="result.reasoning || ''" />
+                  </div>
+                </details>
+                <!-- 最终回答 -->
+                <MarkdownRenderer :content="result.fullContent || ''" />
+              </template>
 
-                  <div v-if="!result.done && !result.hasError" class="typing-dots">
-                    <span></span><span></span><span></span>
+              <div v-if="!result.done && !result.hasError" class="typing-dots">
+                <span></span><span></span><span></span>
                   </div>
                 </div>
               </div>
@@ -166,19 +166,19 @@
         <div class="panel-header">
           <span class="panel-title">提示词变体 ({{ variants.length }}/5)</span>
           <div class="header-actions">
-            <a-button 
-              size="small" 
-              type="dashed" 
-              @click="addVariant" 
+            <a-button
+              size="small"
+              type="dashed"
+              @click="addVariant"
               :disabled="variants.length >= 5"
               style="flex-shrink: 0;"
             >
               + 添加变体
             </a-button>
-            <a-button 
+            <a-button
               v-if="variants.length > 2"
-              size="small" 
-              type="dashed" 
+              size="small"
+              type="dashed"
               danger
               @click="removeVariant(variants.length - 1)"
               style="flex-shrink: 0;"
@@ -216,7 +216,7 @@
           {{ isStreaming ? '运行中...' : '开始实验' }}
         </button>
       </div>
-      
+
       <!-- 放大编辑对话框 -->
       <a-modal
         :open="expandedVariantIndex !== null"
@@ -287,12 +287,12 @@ const canSubmit = computed(() => {
 const loadModels = async (searchText?: string) => {
   try {
     loadingModels.value = true
-    const res: any = await listModels({ 
-      pageNum: 1, 
+    const res: any = await listModels({
+      pageNum: 1,
       pageSize: 50,
       searchText: searchText || undefined
     })
-    
+
     if (res.data && res.data.code === 0 && res.data.data && res.data.data.records) {
       const models = res.data.data.records
       modelOptions.value = models.map((m: any) => ({
@@ -330,42 +330,41 @@ const handleSubmit = async () => {
   if (!canSubmit.value) return
 
   isStreaming.value = true
-  
+
   // 始终使用当前输入的变体（用户可能已经修改了）
   const promptVariantsToUse = variants.value.filter(v => v.trim() !== '')
-  
+
   // 如果是新会话，保存原始变体（用于后续轮次保持变体数量一致）
   if (!route.query.conversationId && originalVariants.value.length === 0) {
     originalVariants.value = [...promptVariantsToUse]
   }
-  
+
   // 添加用户消息
   messages.value.push({
     type: 'user',
     variants: [...promptVariantsToUse]
   })
-  
+
   // 添加AI响应占位
   const assistantMsgIndex = messages.value.length
   const initialResults = promptVariantsToUse.map((_, idx) => ({
-    variantIndex: idx,
-    fullContent: '',
-    done: false,
-    hasError: false,
-  }))
-  
+      variantIndex: idx,
+      fullContent: '',
+      done: false,
+      hasError: false,
+    }))
+
   messages.value.push({
     type: 'assistant',
     results: initialResults
   })
-  
+
   // 滚动到底部
   scrollToBottom()
 
   try {
     const conversationId = route.query.conversationId as string
     const url = `${API_BASE_URL}/conversation/prompt-lab/stream`
-    
     sseController.value = await createPostSSE(
       url,
       {
@@ -377,7 +376,7 @@ const handleSubmit = async () => {
       {
         onMessage: (chunk: StreamChunkVO) => {
           console.log('📨 Prompt Lab收到:', chunk.variantIndex, chunk.fullContent?.substring(0, 20))
-          
+
           // 如果是新会话，保存conversationId到URL
           if (chunk.conversationId && !route.query.conversationId) {
             console.log('💾 保存新会话ID到URL:', chunk.conversationId)
@@ -386,7 +385,7 @@ const handleSubmit = async () => {
               query: { conversationId: chunk.conversationId }
             })
           }
-          
+
           // 更新AI响应消息（从messages数组中重新获取，确保获取最新状态）
           const assistantMsg = messages.value[assistantMsgIndex]
           if (assistantMsg && assistantMsg.results && chunk.variantIndex !== undefined) {
@@ -408,16 +407,16 @@ const handleSubmit = async () => {
         },
         onComplete: () => {
           isStreaming.value = false
-          
+
           // 加载评分
           const assistantMsg = messages.value[assistantMsgIndex]
           if (assistantMsg && assistantMsg.messageIndex !== undefined) {
-            const conversationId = route.query.conversationId as string
-            if (conversationId) {
+          const conversationId = route.query.conversationId as string
+          if (conversationId) {
               loadRatingForMessage(conversationId, assistantMsg)
-            }
           }
-          
+          }
+
           // 流式传输完成后，不需要重新加载历史会话
           // 因为消息已经在流式传输过程中实时更新了
           // 重新加载会导致布局变化，所以注释掉
@@ -427,7 +426,7 @@ const handleSubmit = async () => {
           //     loadConversationHistory(false)
           //   }, 500)
           // }
-          
+
           // 滚动到底部
           scrollToBottom()
         },
@@ -450,7 +449,7 @@ const handleVariantRating = async (msg: PromptLabMsg, variantIndex: number) => {
 
   try {
     const ratingType = variantIndex === -1 ? 'both_bad' : `variant_${variantIndex}`
-    
+
     const res: any = await addRating({
       conversationId,
       messageIndex: msg.messageIndex,
@@ -482,7 +481,7 @@ const handleVariantRating = async (msg: PromptLabMsg, variantIndex: number) => {
 // 加载消息的评分（单个消息，用于按需加载）
 const loadRatingForMessage = async (conversationId: string, msg: PromptLabMsg) => {
   if (!msg.messageIndex) return
-  
+
   try {
     const res: any = await getRating(conversationId, msg.messageIndex)
     if (res.data && res.data.code === 0 && res.data.data) {
@@ -511,7 +510,7 @@ const loadRatings = async (conversationId: string) => {
       ratings.forEach(rating => {
         ratingMap.set(rating.messageIndex, rating)
       })
-      
+
       // 更新所有assistant消息的评分
       for (let i = 0; i < messages.value.length; i++) {
         const msg = messages.value[i]
@@ -591,28 +590,28 @@ const closeExpandedVariant = () => {
 const loadConversationHistory = async (skipIfStreaming: boolean = true) => {
   const conversationId = route.query.conversationId as string
   if (!conversationId) return
-  
+
   // 如果正在流式传输且要求跳过，则不加载
   if (skipIfStreaming && isStreaming.value) {
     console.log('⏸️ 正在流式传输，跳过加载历史会话')
     return
   }
-  
+
   try {
     console.log('📡 加载提示词实验会话:', conversationId)
-    
+
     // 获取会话详情
     const conversationRes: any = await getConversation({ conversationId })
     if (conversationRes.data && conversationRes.data.code === 0 && conversationRes.data.data) {
       const conversation = conversationRes.data.data
-      
+
       // 检查会话类型，如果是side_by_side，跳转到对应页面
       if (conversation.conversationType === 'side_by_side') {
         console.log('🔄 检测到模型对比会话，跳转到side-by-side页面')
         router.replace(`/side-by-side?conversationId=${conversationId}`)
         return
       }
-      
+
       // 解析models获取单个模型
       let modelsList = conversation.models
       if (typeof modelsList === 'string') {
@@ -622,7 +621,7 @@ const loadConversationHistory = async (skipIfStreaming: boolean = true) => {
         selectedModel.value = modelsList[0]
       }
     }
-    
+
     // 获取消息历史
     const messagesRes: any = await getConversationMessages({ conversationId })
     console.log('📡 消息接口响应:', messagesRes)
@@ -635,20 +634,20 @@ const loadConversationHistory = async (skipIfStreaming: boolean = true) => {
         content: m.content?.substring(0, 50),
         variantIndex: m.variantIndex
       })))
-      
+
       // 提取第一轮的提示词变体（会话创建时的原始变体）
       // 在Prompt Lab中，每个变体都会创建一个用户消息，messageIndex是连续的
       // 第一轮的所有变体应该是前N个连续的用户消息，其中N是变体数量
       const userMessages = historyMessages
         .filter((m: any) => m.role === 'user')
         .sort((a: any, b: any) => (a.messageIndex || 0) - (b.messageIndex || 0))
-      
+
       if (userMessages.length > 0) {
         // 提取第一轮的所有变体
         // 第一轮的特征：所有消息都包含"变体X: "格式，且变体索引从0开始连续
         const firstRoundVariants: string[] = []
         let expectedVariantIndex = 0
-        
+
         for (const msg of userMessages) {
           const content = msg.content || ''
           // 检查是否是变体格式（包含"变体X: "前缀）
@@ -656,12 +655,12 @@ const loadConversationHistory = async (skipIfStreaming: boolean = true) => {
           if (variantMatch) {
             const variantIndex = parseInt(variantMatch[1], 10)
             const variantContent = variantMatch[2]
-            
+
             // 如果是第一个变体（索引为0），开始收集第一轮
             if (variantIndex === 0 && firstRoundVariants.length === 0) {
               firstRoundVariants.push(variantContent)
               expectedVariantIndex = 1
-            } 
+            }
             // 如果当前变体索引等于期望的索引，说明是第一轮的连续变体
             else if (variantIndex === expectedVariantIndex && firstRoundVariants.length > 0) {
               firstRoundVariants.push(variantContent)
@@ -678,7 +677,7 @@ const loadConversationHistory = async (skipIfStreaming: boolean = true) => {
             }
           }
         }
-        
+
         if (firstRoundVariants.length > 0) {
           // 保存原始变体
           originalVariants.value = [...firstRoundVariants]
@@ -687,12 +686,12 @@ const loadConversationHistory = async (skipIfStreaming: boolean = true) => {
           console.log('📝 提取到原始变体:', firstRoundVariants.length, '个')
         }
       }
-      
+
       // 按messageIndex分组，构建消息列表
       const allMessages = historyMessages.filter((m: any) => m.role === 'user' || m.role === 'assistant')
       console.log('📋 过滤后的消息数量:', allMessages.length, '用户消息:', allMessages.filter((m: any) => m.role === 'user').length, '助手消息:', allMessages.filter((m: any) => m.role === 'assistant').length)
       const messagesByIndex = new Map<number, { users: any[], assistants: any[] }>()
-      
+
       allMessages.forEach((m: any) => {
         const msgIndex = m.messageIndex || 0
         if (!messagesByIndex.has(msgIndex)) {
@@ -705,30 +704,30 @@ const loadConversationHistory = async (skipIfStreaming: boolean = true) => {
           entry.assistants.push(m)
         }
       })
-      
+
       console.log('📊 消息分组结果:', Array.from(messagesByIndex.entries()).map(([idx, entry]) => ({
         messageIndex: idx,
         userCount: entry.users.length,
         assistantCount: entry.assistants.length
       })))
-      
+
       // 构建消息列表
       const sortedIndexes = Array.from(messagesByIndex.keys()).sort((a, b) => a - b)
       const newMessages: PromptLabMsg[] = []
-      
+
       // 记录最后一轮的变体数量（用于设置输入框）
       let lastRoundVariantCount = 0
-      
+
       for (const msgIndex of sortedIndexes) {
         const entry = messagesByIndex.get(msgIndex)!
-        
+
         // 添加用户消息
         // 对于同一轮次的所有用户消息，提取所有变体
         let currentRoundVariantCount = 0
         if (entry.users.length > 0) {
           const userVariants: string[] = []
           const variantMap = new Map<number, string>() // 用于按索引排序
-          
+
           console.log('🔍 处理用户消息，数量:', entry.users.length, 'messageIndex:', msgIndex)
           console.log('🔍 所有用户消息详情:', entry.users.map((m: any, idx: number) => ({
             index: idx,
@@ -736,11 +735,11 @@ const loadConversationHistory = async (skipIfStreaming: boolean = true) => {
             messageIndex: m.messageIndex,
             variantIndex: m.variantIndex
           })))
-          
+
           entry.users.forEach((m: any, idx: number) => {
-            const content = m.content || ''
+          const content = m.content || ''
             console.log(`  📝 用户消息[${idx}]:`, content)
-            
+
             // 匹配"变体X:内容"或"变体X: 内容"（冒号后可能有空格）
             // 使用更宽松的正则，允许前后有空白字符，并且匹配整个字符串
             const match = content.match(/^变体\s*(\d+)\s*:\s*(.+)$/s)
@@ -762,80 +761,80 @@ const loadConversationHistory = async (skipIfStreaming: boolean = true) => {
               }
             }
           })
-          
+
           // 按变体索引排序
           const sortedVariants = Array.from(variantMap.entries())
             .sort((a, b) => a[0] - b[0])
             .map(([_, content]) => content)
-          
+
           currentRoundVariantCount = sortedVariants.length
           // 更新最后一轮的变体数量
           lastRoundVariantCount = sortedVariants.length
           console.log('📊 提取到的变体:', sortedVariants.length, '个', sortedVariants)
-          
+
           if (sortedVariants.length > 0) {
             newMessages.push({
               type: 'user',
               variants: sortedVariants,
               messageIndex: msgIndex
-            })
+        })
             console.log('✅ 添加用户消息，变体数量:', sortedVariants.length, 'messageIndex:', msgIndex, '变体:', sortedVariants)
           }
-        }
-        
+      }
+
         // 添加AI响应
         if (entry.assistants.length > 0) {
           console.log('🔍 处理AI响应，数量:', entry.assistants.length, 'messageIndex:', msgIndex)
           entry.assistants.forEach((m: any, idx: number) => {
             console.log(`  📝 AI响应[${idx}]: variantIndex=${m.variantIndex}, content长度=${(m.content || '').length}`)
           })
-          
+
           const results = entry.assistants
             .map((m: any) => ({
-              variantIndex: m.variantIndex,
-              fullContent: m.content,
-              done: true,
-              hasError: false,
-              responseTimeMs: m.responseTimeMs,
-              inputTokens: m.inputTokens,
-              outputTokens: m.outputTokens,
-              totalTokens: (m.inputTokens || 0) + (m.outputTokens || 0),
-              cost: m.cost,
-              reasoning: m.reasoning,
-              hasReasoning: !!m.reasoning,
-              thinkingTime: m.reasoning ? Math.max(1, Math.min(Math.ceil(m.reasoning.length / 200), 60)) : undefined
-            }))
+          variantIndex: m.variantIndex,
+          fullContent: m.content,
+          done: true,
+          hasError: false,
+          responseTimeMs: m.responseTimeMs,
+          inputTokens: m.inputTokens,
+          outputTokens: m.outputTokens,
+          totalTokens: (m.inputTokens || 0) + (m.outputTokens || 0),
+          cost: m.cost,
+          reasoning: m.reasoning,
+          hasReasoning: !!m.reasoning,
+          thinkingTime: m.reasoning ? Math.max(1, Math.min(Math.ceil(m.reasoning.length / 200), 60)) : undefined
+        }))
             .sort((a, b) => (a.variantIndex || 0) - (b.variantIndex || 0))
-          
+
           console.log('📊 排序后的AI响应:', results.length, '个', results.map(r => `variantIndex=${r.variantIndex}`))
-          
+
           // 使用当前轮次的变体数量，而不是原始变体数量
           // 这样即使第一轮只有1个变体，后续轮次有2个变体时也能正确显示
           const finalResults = currentRoundVariantCount > 0
             ? results.slice(0, currentRoundVariantCount)
             : results
-          
+
           console.log('📊 最终AI响应数量:', finalResults.length, '当前轮次变体数量:', currentRoundVariantCount)
-          
+
           if (finalResults.length > 0) {
             const assistantMsg: PromptLabMsg = {
               type: 'assistant',
               results: finalResults,
               messageIndex: msgIndex
             }
-            
+
             newMessages.push(assistantMsg)
             console.log('✅ 添加AI响应，变体数量:', finalResults.length, 'messageIndex:', msgIndex)
           }
         }
       }
-      
+
       // 一次性更新消息列表，避免中间状态导致页面闪烁
       messages.value = newMessages
-      
+
       // 批量加载所有评分
       await loadRatings(conversationId)
-      
+
       // 使用最后一轮的变体数量设置输入框（如果最后一轮有变体）
       if (lastRoundVariantCount > 0) {
         // 如果当前输入框数量与最后一轮不一致，更新输入框
@@ -852,7 +851,7 @@ const loadConversationHistory = async (skipIfStreaming: boolean = true) => {
           }
         }
       }
-      
+
       console.log('✅ 最终消息列表数量:', messages.value.length)
       console.log('📝 消息列表详情:', messages.value.map(m => ({
         type: m.type,
@@ -860,7 +859,7 @@ const loadConversationHistory = async (skipIfStreaming: boolean = true) => {
         variantsCount: m.variants?.length,
         resultsCount: m.results?.length
       })))
-      
+
       // 滚动到底部
       scrollToBottom()
     } else {
@@ -894,7 +893,7 @@ onMounted(() => {
   loadModels()
   // 如果URL中已经有conversationId，立即加载
   if (route.query.conversationId) {
-    loadConversationHistory()
+  loadConversationHistory()
   }
 })
 

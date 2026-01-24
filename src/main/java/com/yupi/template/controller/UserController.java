@@ -177,4 +177,17 @@ public class UserController {
         return ResultUtils.success(userVOPage);
     }
 
+    /**
+     * 测试自动重启功能
+     * 修改此方法的返回值后保存，观察应用是否自动重启
+     *
+     * @return 测试信息
+     */
+    @GetMapping("/test/auto-restart")
+    public BaseResponse<String> testAutoRestart() {
+        String version = "v1.0";
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String message = String.format("自动重启测试成功！版本：%s，时间戳：%s", version, timestamp);
+        return ResultUtils.success(message);
+    }
 }

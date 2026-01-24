@@ -6,6 +6,7 @@ import UserManagePage from '@/pages/admin/UserManagePage.vue'
 import ChatPage from '@/pages/ChatPage.vue'
 import SideBySidePage from '@/pages/SideBySidePage.vue'
 import PromptLabPage from '@/pages/PromptLabPage.vue'
+import CodeModePage from '@/pages/CodeModePage.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -34,6 +35,11 @@ const router = createRouter({
       path: '/chat',
       name: 'Chat',
       component: ChatPage,
+    },
+    {
+      path: '/code-mode',
+      name: '代码模式',
+      component: CodeModePage,
     },
     {
       path: '/user/login',

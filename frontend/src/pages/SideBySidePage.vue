@@ -109,86 +109,86 @@
                     boxShadow: '0 1px 3px rgba(0, 0, 0, 0.06)'
                   }"
                 >
-                  <div class="col-header">
-                    <div class="header-left">
-                      <img
-                        :src="getProviderIcon(resp.modelName)"
-                        :alt="getModelName(resp.modelName)"
-                        class="model-icon"
+                <div class="col-header">
+                  <div class="header-left">
+                    <img
+                      :src="getProviderIcon(resp.modelName)"
+                      :alt="getModelName(resp.modelName)"
+                      class="model-icon"
                         @error="(e) => (e.target as HTMLImageElement).src = getDefaultIconUrl()"
-                      />
-                      <span class="model-tag">{{ getModelName(resp.modelName) }}</span>
-                    </div>
-                    <div class="header-right">
-                      <div class="metrics">
-                        <!-- 实时响应时间 -->
-                        <span v-if="!resp.done && resp.elapsedMs" class="metric-item">
+                    />
+                    <span class="model-tag">{{ getModelName(resp.modelName) }}</span>
+                  </div>
+                  <div class="header-right">
+                    <div class="metrics">
+                      <!-- 实时响应时间 -->
+                      <span v-if="!resp.done && resp.elapsedMs" class="metric-item">
                         ⏱ {{ (resp.elapsedMs / 1000).toFixed(1) }}s
                       </span>
-                        <span v-else-if="resp.responseTimeMs" class="metric-item">
+                      <span v-else-if="resp.responseTimeMs" class="metric-item">
                         ⏱ {{ (resp.responseTimeMs / 1000).toFixed(2) }}s
                       </span>
 
-                        <!-- Token消耗 -->
-                        <span v-if="resp.inputTokens || resp.outputTokens" class="metric-item">
+                      <!-- Token消耗 -->
+                      <span v-if="resp.inputTokens || resp.outputTokens" class="metric-item">
                         📊 {{ (resp.inputTokens || 0) + (resp.outputTokens || 0) }}t
                       </span>
 
-                        <!-- 成本 -->
-                        <span v-if="resp.cost" class="metric-item">
+                      <!-- 成本 -->
+                      <span v-if="resp.cost" class="metric-item">
                         💰 ${{ resp.cost.toFixed(4) }}
                       </span>
-                      </div>
-                      <div class="action-buttons">
-                        <button
-                          class="action-btn"
-                          title="复制响应"
-                          @click="copyResponse(resp.fullContent || '', resp.modelName)"
-                        >
-                          <CopyOutlined />
-                        </button>
-                        <button
-                          class="action-btn"
-                          title="最大化"
-                          @click="expandResponse(resp.modelName, resp.fullContent || '')"
-                        >
-                          <ExpandOutlined />
-                        </button>
-                      </div>
                     </div>
-                  </div>
-                  <div class="col-body">
-                    <!-- 错误提示 -->
-                    <div v-if="resp.hasError" class="error-message">
-                      <a-alert
-                        type="error"
-                        :message="`调用失败: ${resp.error || '未知错误'}`"
-                        show-icon
-                        closable
-                      />
-                    </div>
-                    <!-- 正常内容 -->
-                    <template v-else>
-                      <!-- 思考过程 -->
-                      <details v-if="resp.hasReasoning && resp.reasoning" class="thinking-details" open>
-                        <summary class="thinking-summary">
-                        <span class="thinking-title">
-                          思考了 {{ resp.thinkingTime || calculateThinkingTime(resp.reasoning) }} 秒
-                        </span>
-                        </summary>
-                        <div class="thinking-content">
-                          <MarkdownRenderer :content="resp.reasoning || ''" />
-                        </div>
-                      </details>
-                      <!-- 最终回答 - 使用Markdown渲染 -->
-                      <MarkdownRenderer :content="resp.fullContent || ''" />
-                    </template>
-                    <div v-if="!resp.done && !resp.hasError" class="dots">
-                      <span></span><span></span><span></span>
+                    <div class="action-buttons">
+                      <button
+                        class="action-btn"
+                        title="复制响应"
+                        @click="copyResponse(resp.fullContent || '', resp.modelName)"
+                      >
+                        <CopyOutlined />
+                      </button>
+                      <button
+                        class="action-btn"
+                        title="最大化"
+                        @click="expandResponse(resp.modelName, resp.fullContent || '')"
+                      >
+                        <ExpandOutlined />
+                      </button>
                     </div>
                   </div>
                 </div>
+                <div class="col-body">
+                  <!-- 错误提示 -->
+                  <div v-if="resp.hasError" class="error-message">
+                    <a-alert
+                      type="error"
+                      :message="`调用失败: ${resp.error || '未知错误'}`"
+                      show-icon
+                      closable
+                    />
+                  </div>
+                  <!-- 正常内容 -->
+                  <template v-else>
+                    <!-- 思考过程 -->
+                    <details v-if="resp.hasReasoning && resp.reasoning" class="thinking-details" open>
+                      <summary class="thinking-summary">
+                        <span class="thinking-title">
+                          思考了 {{ resp.thinkingTime || calculateThinkingTime(resp.reasoning) }} 秒
+                        </span>
+                      </summary>
+                      <div class="thinking-content">
+                        <MarkdownRenderer :content="resp.reasoning || ''" />
+                      </div>
+                    </details>
+                    <!-- 最终回答 - 使用Markdown渲染 -->
+                    <MarkdownRenderer :content="resp.fullContent || ''" />
+                  </template>
+                  <div v-if="!resp.done && !resp.hasError" class="dots">
+                    <span></span><span></span><span></span>
+                  </div>
+                </div>
               </div>
+            </div>
             </div>
 
             <!-- 评分按钮 - 只在所有响应完成后显示 -->
@@ -241,6 +241,10 @@
           <div class="bottom-bar">
             <div class="left-tools">
               <button class="tool-icon"><SearchOutlined /></button>
+              <button class="tool-icon"><FileImageOutlined /></button>
+              <button class="tool-icon" title="代码模式" @click="switchToCodeMode">
+                <CodeOutlined />
+              </button>
             </div>
 
             <button
@@ -287,6 +291,7 @@ import { message } from 'ant-design-vue'
 import { useLoginUserStore } from '@/stores/loginUser'
 import {
   SearchOutlined,
+  CodeOutlined,
   SendOutlined,
   SwapOutlined,
   ExperimentOutlined,
@@ -521,6 +526,9 @@ const handlePopupScroll = (e: Event) => {
 }
 
 
+const switchToCodeMode = () => {
+  router.push('/code-mode')
+}
 
 const sendMessage = async () => {
   if (!canSend.value) return
@@ -751,7 +759,7 @@ const getProviderIcon = (modelId: string | undefined) => {
   if (!modelId) {
     return getDefaultIconUrl()
   }
-  
+
   const iconFile = getIconFile(modelId)
   return new URL(`../assets/provider-icons/${iconFile}`, import.meta.url).href
 }
@@ -867,15 +875,15 @@ const handleRating = async (msgIndex: number, ratingType: string, winnerModelNam
         messages.value[msgIndex] = {
           ...messages.value[msgIndex],
           rating: {
-            id: '',
-            conversationId,
-            messageIndex: msg.messageIndex!,
-            userId: loginUser.value.id,
-            ratingType,
-            winnerModel,
-            loserModel,
-            createTime: new Date().toISOString()
-          }
+        id: '',
+        conversationId,
+        messageIndex: msg.messageIndex!,
+        userId: loginUser.value.id,
+        ratingType,
+        winnerModel,
+        loserModel,
+        createTime: new Date().toISOString()
+      }
         }
       }
       // 强制触发响应式更新
@@ -898,10 +906,10 @@ const loadRatings = async (conversationId: string) => {
     console.log('⏸️ 评分正在加载中，跳过重复调用')
     return
   }
-  
+
   loadingRatings = true
   loadingRatingsConversationId = conversationId
-  
+
   try {
     const res: any = await getRatingsByConversationId(conversationId)
     if (res.data && res.data.code === 0 && res.data.data) {
@@ -911,11 +919,11 @@ const loadRatings = async (conversationId: string) => {
       ratings.forEach(rating => {
         ratingMap.set(rating.messageIndex, rating)
       })
-      
+
       // 更新所有assistant消息的评分
-      for (let i = 0; i < messages.value.length; i++) {
-        const msg = messages.value[i]
-        if (msg.type === 'assistant' && msg.messageIndex !== undefined) {
+  for (let i = 0; i < messages.value.length; i++) {
+    const msg = messages.value[i]
+    if (msg.type === 'assistant' && msg.messageIndex !== undefined) {
           const rating = ratingMap.get(msg.messageIndex)
           if (rating) {
             messages.value[i] = {
@@ -927,9 +935,9 @@ const loadRatings = async (conversationId: string) => {
       }
       // 触发响应式更新
       messages.value = [...messages.value]
-    }
-  } catch (error) {
-    console.error('加载评分失败:', error)
+        }
+      } catch (error) {
+        console.error('加载评分失败:', error)
   } finally {
     loadingRatings = false
     // 延迟清除，避免快速连续调用
@@ -938,7 +946,7 @@ const loadRatings = async (conversationId: string) => {
         loadingRatingsConversationId = null
       }
     }, 1000)
-  }
+    }
 }
 
 // 加载历史会话消息

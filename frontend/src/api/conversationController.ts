@@ -2,6 +2,17 @@
 export * from './duihuajiekou'
 
 /**
+ * 代码块接口
+ */
+export interface CodeBlock {
+  language: string
+  code: string
+  sanitizedHtml?: string
+  startIndex?: number
+  endIndex?: number
+}
+
+/**
  * 流式响应数据块
  */
 export interface StreamChunkVO {
@@ -23,4 +34,6 @@ export interface StreamChunkVO {
   hasReasoning?: boolean
   thinkingTime?: number
   messageIndex?: number
+  codeBlocks?: CodeBlock[]
+  hasCodeBlocks?: boolean
 }
