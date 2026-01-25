@@ -62,6 +62,16 @@
             <artifactId>redisson</artifactId>
             <version>3.50.0</version>
         </dependency>
+        <!-- RabbitMQ (消息队列) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+        <!-- WebSocket (实时通信) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
         <!-- MyBatis-Flex -->
         <dependency>
             <groupId>com.mybatis-flex</groupId>

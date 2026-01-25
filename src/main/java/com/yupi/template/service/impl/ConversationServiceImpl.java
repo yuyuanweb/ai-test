@@ -23,6 +23,8 @@ import com.yupi.template.model.enums.ConversationTypeEnum;
 import com.yupi.template.model.enums.MessageRoleEnum;
 import com.yupi.template.model.vo.StreamChunkVO;
 import com.yupi.template.service.ConversationService;
+import com.yupi.template.service.ModelService;
+import com.yupi.template.service.UserModelUsageService;
 import com.yupi.template.utils.CodeExtractor;
 import com.yupi.template.model.dto.code.CodeBlock;
 import jakarta.annotation.Resource;
@@ -73,6 +75,12 @@ public class ConversationServiceImpl implements ConversationService {
 
     @Resource
     private ModelMapper modelMapper;
+
+    @Resource
+    private ModelService modelService;
+
+    @Resource
+    private UserModelUsageService userModelUsageService;
 
     @Override
     public String createConversation(CreateConversationRequest request, Long userId) {
@@ -1207,6 +1215,20 @@ public class ConversationServiceImpl implements ConversationService {
 
         // 更新对话统计
         updateConversationStats(conversationId, inputTokens + outputTokens, cost);
+
+        // 更新模型使用统计（全局）
+        modelService.updateModelUsage(modelName, inputTokens + outputTokens, cost);
+
+        // 更新用户-模型使用统计
+        Conversation conversation = conversationMapper.selectOneById(conversationId);
+        if (conversation != null && conversation.getUserId() != null) {
+            userModelUsageService.updateUserModelUsage(
+                    conversation.getUserId(),
+                    modelName,
+                    inputTokens + outputTokens,
+                    cost
+            );
+        }
     }
 
     /**

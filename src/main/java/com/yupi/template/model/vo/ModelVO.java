@@ -81,6 +81,30 @@ public class ModelVO implements Serializable {
     @Schema(description = "能力标签", example = "[\"代码\", \"文本生成\"]")
     private String[] tags;
 
+    /**
+     * 累计使用Token数
+     */
+    @Schema(description = "累计使用Token数", example = "1000000")
+    private Long totalTokens;
+
+    /**
+     * 累计花费（美元）
+     */
+    @Schema(description = "累计花费（美元）", example = "10.50")
+    private BigDecimal totalCost;
+
+    /**
+     * 用户累计使用Token数
+     */
+    @Schema(description = "用户累计使用Token数", example = "50000")
+    private Long userTotalTokens;
+
+    /**
+     * 用户累计花费（美元）
+     */
+    @Schema(description = "用户累计花费（美元）", example = "2.50")
+    private BigDecimal userTotalCost;
+
     private static final long serialVersionUID = 1L;
 }
 

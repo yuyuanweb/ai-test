@@ -92,6 +92,18 @@ public class Model implements Serializable {
     private String rawData;
 
     /**
+     * 累计使用Token数
+     */
+    @Column("totalTokens")
+    private Long totalTokens;
+
+    /**
+     * 累计花费（美元）
+     */
+    @Column("totalCost")
+    private BigDecimal totalCost;
+
+    /**
      * 创建时间
      */
     @Column("createTime")

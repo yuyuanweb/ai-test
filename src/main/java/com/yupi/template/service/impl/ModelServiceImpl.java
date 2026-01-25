@@ -7,8 +7,10 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.yupi.template.mapper.ModelMapper;
 import com.yupi.template.model.dto.model.ModelQueryRequest;
 import com.yupi.template.model.entity.Model;
+import com.yupi.template.model.entity.UserModelUsage;
 import com.yupi.template.model.vo.ModelVO;
 import com.yupi.template.service.ModelService;
+import com.yupi.template.service.UserModelUsageService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -28,18 +30,22 @@ public class ModelServiceImpl implements ModelService {
     @Resource
     private ModelMapper modelMapper;
 
+    @Resource
+    private UserModelUsageService userModelUsageService;
+
     /**
      * 分页查询模型列表（支持搜索）
      */
     @Override
-    public Page<ModelVO> listModels(ModelQueryRequest queryRequest) {
+    public Page<ModelVO> listModels(ModelQueryRequest queryRequest, Long userId) {
         int pageNum = (int) queryRequest.getPageNum();
         int pageSize = (int) queryRequest.getPageSize();
 
         // 构建查询条件
         QueryWrapper queryWrapper = QueryWrapper.create()
                 .select("id", "name", "description", "provider", "contextLength",
-                        "inputPrice", "outputPrice", "recommended", "isChina", "tags")
+                        "inputPrice", "outputPrice", "recommended", "isChina", "tags",
+                        "totalTokens", "totalCost")
                 .where("isDelete = 0");
 
         // 搜索条件
@@ -64,9 +70,9 @@ public class ModelServiceImpl implements ModelService {
         log.info("分页查询模型：第{}页，每页{}条，总数{}，返回{}条",
                 pageNum, pageSize, modelPage.getTotalRow(), modelPage.getRecords().size());
 
-        // 转换为VO
+        // 转换为VO，并关联用户使用统计
         List<ModelVO> modelVOList = modelPage.getRecords().stream()
-                .map(this::convertToModelVO)
+                .map(model -> convertToModelVO(model, userId))
                 .collect(Collectors.toList());
 
         // 构造分页结果
@@ -79,10 +85,11 @@ public class ModelServiceImpl implements ModelService {
      * 获取所有模型列表（国内优先）
      */
     @Override
-    public List<ModelVO> getAllModels() {
+    public List<ModelVO> getAllModels(Long userId) {
         QueryWrapper queryWrapper = QueryWrapper.create()
                 .select("id", "name", "description", "provider", "contextLength",
-                        "inputPrice", "outputPrice", "recommended", "isChina", "tags")
+                        "inputPrice", "outputPrice", "recommended", "isChina", "tags",
+                        "totalTokens", "totalCost")
                 .where("isDelete = 0")
                 .orderBy("isChina", false)
                 .orderBy("recommended", false)
@@ -92,14 +99,14 @@ public class ModelServiceImpl implements ModelService {
 
         log.info("返回{}个模型", models.size());
         return models.stream()
-                .map(this::convertToModelVO)
+                .map(model -> convertToModelVO(model, userId))
                 .collect(Collectors.toList());
     }
 
     /**
      * 转换Model实体为ModelVO
      */
-    private ModelVO convertToModelVO(Model model) {
+    private ModelVO convertToModelVO(Model model, Long userId) {
         // 解析标签JSON数组
         String[] tags = null;
         if (model.getTags() != null && !model.getTags().isEmpty()) {
@@ -116,6 +123,17 @@ public class ModelServiceImpl implements ModelService {
 
         Boolean isChina = model.getIsChina() != null && model.getIsChina() == 1;
 
+        // 查询用户维度的使用统计
+        Long userTotalTokens = 0L;
+        java.math.BigDecimal userTotalCost = java.math.BigDecimal.ZERO;
+        if (userId != null) {
+            UserModelUsage userUsage = userModelUsageService.getUserModelUsage(userId, model.getId());
+            if (userUsage != null) {
+                userTotalTokens = userUsage.getTotalTokens() != null ? userUsage.getTotalTokens() : 0L;
+                userTotalCost = userUsage.getTotalCost() != null ? userUsage.getTotalCost() : java.math.BigDecimal.ZERO;
+            }
+        }
+
         return ModelVO.builder()
                 .id(model.getId())
                 .name(model.getName())
@@ -127,7 +145,43 @@ public class ModelServiceImpl implements ModelService {
                 .recommended(model.getRecommended() != null && model.getRecommended() == 1)
                 .isChina(isChina)
                 .tags(tags)
+                .totalTokens(model.getTotalTokens() != null ? model.getTotalTokens() : 0L)
+                .totalCost(model.getTotalCost() != null ? model.getTotalCost() : java.math.BigDecimal.ZERO)
+                .userTotalTokens(userTotalTokens)
+                .userTotalCost(userTotalCost)
                 .build();
+    }
+
+    /**
+     * 更新模型使用统计
+     */
+    @Override
+    public void updateModelUsage(String modelName, int tokens, java.math.BigDecimal cost) {
+        if (StrUtil.isBlank(modelName) || tokens <= 0) {
+            return;
+        }
+
+        try {
+            Model model = modelMapper.selectOneById(modelName);
+            if (model == null) {
+                log.warn("模型不存在，无法更新使用统计: modelName={}", modelName);
+                return;
+            }
+
+            Long currentTokens = model.getTotalTokens() != null ? model.getTotalTokens() : 0L;
+            java.math.BigDecimal currentCost = model.getTotalCost() != null ? model.getTotalCost() : java.math.BigDecimal.ZERO;
+
+            model.setTotalTokens(currentTokens + tokens);
+            if (cost != null) {
+                model.setTotalCost(currentCost.add(cost));
+            }
+
+            modelMapper.update(model);
+            log.debug("更新模型使用统计: modelName={}, addTokens={}, addCost={}, totalTokens={}, totalCost={}",
+                    modelName, tokens, cost, model.getTotalTokens(), model.getTotalCost());
+        } catch (Exception e) {
+            log.error("更新模型使用统计失败: modelName={}", modelName, e);
+        }
     }
 }
 

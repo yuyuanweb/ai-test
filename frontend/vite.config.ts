@@ -12,12 +12,21 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  define: {
+    global: 'globalThis',
+  },
   server: {
     proxy: {
       '/api': {
         target: 'http://localhost:8123',
         changeOrigin: true,
         secure: false,
+      },
+      '/api/ws': {
+        target: 'http://localhost:8123',
+        changeOrigin: true,
+        secure: false,
+        ws: true,
       },
     },
   },

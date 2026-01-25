@@ -114,6 +114,22 @@ export async function userRegister(
   })
 }
 
+/** 获取用户统计数据 GET /user/statistics */
+export async function getUserStatistics(options?: { [key: string]: any }) {
+  return request<{
+    code?: number
+    data?: {
+      totalModels?: number
+      totalTokens?: number
+      totalCost?: number
+    }
+    message?: string
+  }>('/user/statistics', {
+    method: 'GET',
+    ...(options || {}),
+  })
+}
+
 /** 此处后端没有提供注释 GET /user/test/auto-restart */
 export async function testAutoRestart(options?: { [key: string]: any }) {
   return request<API.BaseResponseString>('/user/test/auto-restart', {

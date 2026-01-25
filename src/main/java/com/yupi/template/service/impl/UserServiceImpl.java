@@ -11,9 +11,14 @@ import com.yupi.template.model.dto.user.UserQueryRequest;
 import com.yupi.template.model.entity.User;
 import com.yupi.template.mapper.UserMapper;
 import com.yupi.template.model.enums.UserRoleEnum;
+import com.yupi.template.mapper.ModelMapper;
+import com.yupi.template.mapper.UserModelUsageMapper;
+import com.yupi.template.model.entity.UserModelUsage;
 import com.yupi.template.model.vo.LoginUserVO;
+import com.yupi.template.model.vo.UserStatisticsVO;
 import com.yupi.template.model.vo.UserVO;
 import com.yupi.template.service.UserService;
+import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
@@ -32,6 +37,12 @@ import static com.yupi.template.constant.UserConstant.USER_LOGIN_STATE;
  */
 @Service
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements UserService {
+
+    @Resource
+    private ModelMapper modelMapper;
+
+    @Resource
+    private UserModelUsageMapper userModelUsageMapper;
 
     @Override
     public long userRegister(String userAccount, String userPassword, String checkPassword) {
@@ -183,5 +194,41 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         // 盐值，混淆密码
         final String SALT = "yupi";
         return DigestUtils.md5DigestAsHex((userPassword + SALT).getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Override
+    public UserStatisticsVO getUserStatistics(Long userId) {
+        UserStatisticsVO statistics = new UserStatisticsVO();
+
+        // 查询模型总数（isDelete = 0）
+        QueryWrapper modelWrapper = QueryWrapper.create()
+                .eq("isDelete", 0);
+        Long totalModels = modelMapper.selectCountByQuery(modelWrapper);
+        statistics.setTotalModels(totalModels != null ? totalModels : 0L);
+
+        // 从用户-模型使用统计表查询用户的总Tokens和总花费
+        QueryWrapper userModelUsageWrapper = QueryWrapper.create()
+                .eq("userId", userId)
+                .eq("isDelete", 0);
+        List<UserModelUsage> userModelUsages = userModelUsageMapper.selectListByQuery(userModelUsageWrapper);
+
+        Long totalTokens = 0L;
+        java.math.BigDecimal totalCost = java.math.BigDecimal.ZERO;
+
+        if (CollUtil.isNotEmpty(userModelUsages)) {
+            for (UserModelUsage usage : userModelUsages) {
+                if (usage.getTotalTokens() != null) {
+                    totalTokens += usage.getTotalTokens();
+                }
+                if (usage.getTotalCost() != null) {
+                    totalCost = totalCost.add(usage.getTotalCost());
+                }
+            }
+        }
+
+        statistics.setTotalTokens(totalTokens);
+        statistics.setTotalCost(totalCost);
+
+        return statistics;
     }
 }

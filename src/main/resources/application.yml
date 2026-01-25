@@ -21,6 +21,19 @@ spring:
       port: 6379
       database: 0
       password:
+  # RabbitMQ 配置
+  rabbitmq:
+    host: 127.0.0.1
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    listener:
+      simple:
+        acknowledge-mode: manual
+        prefetch: 1
   # Spring AI 配置
   ai:
     openai:
