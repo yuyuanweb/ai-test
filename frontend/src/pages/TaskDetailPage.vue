@@ -24,6 +24,14 @@
       />
 
       <div style="margin-top: 16px">
+        <a-button
+          v-if="task?.status === 'completed'"
+          type="primary"
+          style="margin-left: 8px"
+          @click="handleViewReport"
+        >
+          查看报告
+        </a-button>
         <a-button style="margin-left: 8px" @click="handleCopyTask">
           重新测试
         </a-button>
@@ -274,6 +282,19 @@ const handleCopyTask = () => {
       copyFrom: taskId
     }
   })
+}
+
+const handleViewReport = () => {
+  const taskId = route.params.id as string
+  if (!taskId) {
+    message.error('任务ID不存在')
+    return
+  }
+  if (task.value?.status !== 'completed') {
+    message.warning('任务未完成，暂无报告')
+    return
+  }
+  router.push(`/batch-test/report/${taskId}`)
 }
 
 const handleRatingChange = async (resultId: string, rating: number) => {
