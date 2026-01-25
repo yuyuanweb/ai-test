@@ -14,6 +14,18 @@
           <EditOutlined />
           <span>新对话</span>
         </button>
+        <button class="nav-btn" @click="router.push('/model/manage')">
+          <AppstoreOutlined />
+          <span>模型管理</span>
+        </button>
+        <button class="nav-btn" @click="router.push('/batch-test/create')">
+          <ThunderboltOutlined />
+          <span>批量测试</span>
+        </button>
+        <button class="nav-btn" @click="router.push('/batch-test/list')">
+          <UnorderedListOutlined />
+          <span>测试任务</span>
+        </button>
       </nav>
 
       <!-- 历史对话 -->
@@ -178,18 +190,36 @@
       <!-- 用户区域 -->
       <div class="user-area">
         <!-- 已登录：显示用户信息+退出菜单 -->
-        <a-dropdown v-if="loginUser.id">
+        <a-dropdown v-if="loginUser.id" :trigger="['click']" @visibleChange="handleDropdownVisibleChange">
           <div class="user-trigger">
             <a-avatar :src="loginUser.userAvatar" size="small" />
             <span class="username">{{ loginUser.userName || loginUser.userAccount }}</span>
           </div>
           <template #overlay>
-            <a-menu>
-              <a-menu-item @click="handleLogout">
-                <LogoutOutlined />
-                退出登录
-              </a-menu-item>
-            </a-menu>
+            <div class="user-dropdown-content">
+              <!-- 统计信息 -->
+              <div class="statistics-section">
+                <div class="stat-item">
+                  <div class="stat-label">模型总数</div>
+                  <div class="stat-value">{{ statistics.totalModels || 0 }}</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-label">总Tokens使用量</div>
+                  <div class="stat-value">{{ formatNumber(statistics.totalTokens || 0) }}</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-label">总花费 (USD)</div>
+                  <div class="stat-value">${{ formatCost(statistics.totalCost || 0) }}</div>
+                </div>
+              </div>
+              <a-divider style="margin: 8px 0" />
+              <a-menu>
+                <a-menu-item @click="handleLogout">
+                  <LogoutOutlined />
+                  退出登录
+                </a-menu-item>
+              </a-menu>
+            </div>
           </template>
         </a-dropdown>
 
@@ -211,9 +241,9 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { EditOutlined, LogoutOutlined, SwapOutlined, ExperimentOutlined } from '@ant-design/icons-vue'
+import { EditOutlined, LogoutOutlined, SwapOutlined, ExperimentOutlined, ThunderboltOutlined, UnorderedListOutlined, AppstoreOutlined } from '@ant-design/icons-vue'
 import { useLoginUserStore } from '@/stores/loginUser'
-import { userLogout } from '@/api/userController'
+import { userLogout, getUserStatistics } from '@/api/userController'
 import { listConversations } from '@/api/conversationController'
 
 const router = useRouter()
@@ -229,6 +259,12 @@ const pageSize = 50
 const hasMore = ref(true)
 const loading = ref(false)
 const historyAreaRef = ref<HTMLElement | null>(null)
+
+const statistics = ref({
+  totalModels: 0,
+  totalTokens: 0,
+  totalCost: 0
+})
 
 const loadConversations = async (append: boolean = false) => {
   if (!loginUser.value.id || loading.value || (!append && !hasMore.value)) return
@@ -304,6 +340,32 @@ const handleLogout = async () => {
   } catch (error) {
     message.error('退出失败')
   }
+}
+
+const loadStatistics = async () => {
+  if (!loginUser.value.id) return
+  try {
+    const res: any = await getUserStatistics()
+    if (res.data?.code === 0 && res.data.data) {
+      statistics.value = res.data.data
+    }
+  } catch (error) {
+    console.error('加载统计数据失败:', error)
+  }
+}
+
+const handleDropdownVisibleChange = (visible: boolean) => {
+  if (visible) {
+    loadStatistics()
+  }
+}
+
+const formatNumber = (num: number) => {
+  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
+const formatCost = (cost: number) => {
+  return cost.toFixed(4)
 }
 
 const handleNewChat = () => {
@@ -671,6 +733,39 @@ onMounted(() => {
 
 .main-wrapper {
   flex: 1;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.user-dropdown-content {
+  min-width: 240px;
+  background: #fff;
+}
+
+.statistics-section {
+  padding: 16px;
+  background: #fafafa;
+}
+
+.stat-item {
+  margin-bottom: 12px;
+}
+
+.stat-item:last-child {
+  margin-bottom: 0;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.stat-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1890ff;
 }
 </style>

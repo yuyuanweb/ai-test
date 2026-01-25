@@ -7,6 +7,12 @@ import ChatPage from '@/pages/ChatPage.vue'
 import SideBySidePage from '@/pages/SideBySidePage.vue'
 import PromptLabPage from '@/pages/PromptLabPage.vue'
 import CodeModePage from '@/pages/CodeModePage.vue'
+import BatchTestPage from '@/pages/BatchTestPage.vue'
+import TaskListPage from '@/pages/TaskListPage.vue'
+import TaskDetailPage from '@/pages/TaskDetailPage.vue'
+import TaskComparePage from '@/pages/TaskComparePage.vue'
+import ModelManagePage from '@/pages/admin/ModelManagePage.vue'
+import SceneManagePage from '@/pages/admin/SceneManagePage.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -28,6 +34,54 @@ const router = createRouter({
           path: 'prompt-lab',
           name: 'Prompt Lab',
           component: PromptLabPage,
+        },
+      ],
+    },
+    {
+      path: '/model',
+      component: ArenaLayout,
+      children: [
+        {
+          path: 'manage',
+          name: '模型管理',
+          component: ModelManagePage,
+        },
+      ],
+    },
+    {
+      path: '/scene',
+      component: ArenaLayout,
+      children: [
+        {
+          path: 'manage',
+          name: '场景管理',
+          component: SceneManagePage,
+        },
+      ],
+    },
+    {
+      path: '/batch-test',
+      component: ArenaLayout,
+      children: [
+        {
+          path: 'create',
+          name: '创建批量测试',
+          component: BatchTestPage,
+        },
+        {
+          path: 'list',
+          name: '任务列表',
+          component: TaskListPage,
+        },
+        {
+          path: 'detail/:id',
+          name: '任务详情',
+          component: TaskDetailPage,
+        },
+        {
+          path: 'compare',
+          name: '任务对比',
+          component: TaskComparePage,
         },
       ],
     },

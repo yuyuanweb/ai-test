@@ -5,6 +5,7 @@ import com.mybatisflex.core.service.IService;
 import com.yupi.template.model.dto.user.UserQueryRequest;
 import com.yupi.template.model.entity.User;
 import com.yupi.template.model.vo.LoginUserVO;
+import com.yupi.template.model.vo.UserStatisticsVO;
 import com.yupi.template.model.vo.UserVO;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -91,4 +92,12 @@ public interface UserService extends IService<User> {
      * @return 加密后的用户密码
      */
     String getEncryptPassword(String userPassword);
+
+    /**
+     * 获取用户统计数据
+     *
+     * @param userId 用户ID
+     * @return 统计数据
+     */
+    UserStatisticsVO getUserStatistics(Long userId);
 }

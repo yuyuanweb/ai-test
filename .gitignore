@@ -47,3 +47,7 @@ frontend/.env.*.local
 工具/
 
 /scripts/
+/.agents/
+/.claude/
+/.cursor/
+/.kiro/

@@ -217,6 +217,14 @@ declare namespace API {
     isChina?: boolean
     /** 能力标签 */
     tags?: string[]
+    /** 累计使用Token数 */
+    totalTokens?: number
+    /** 累计花费（美元） */
+    totalCost?: number
+    /** 用户累计使用Token数 */
+    userTotalTokens?: number
+    /** 用户累计花费（美元） */
+    userTotalCost?: number
   }
 
   type PageConversation = {

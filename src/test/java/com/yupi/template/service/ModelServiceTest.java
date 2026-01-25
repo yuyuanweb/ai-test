@@ -32,13 +32,13 @@ class ModelServiceTest {
         ModelQueryRequest request = new ModelQueryRequest();
         request.setPageNum(1);
         request.setPageSize(10);
-        
-        Page<ModelVO> page = modelService.listModels(request);
+
+        Page<ModelVO> page = modelService.listModels(request, null);
         assertNotNull(page, "分页结果不应为空");
         assertNotNull(page.getRecords(), "模型列表不应为空");
         assertTrue(page.getTotalRow() > 0, "应至少有一个模型");
         log.info("查询到{}个模型，总数：{}", page.getRecords().size(), page.getTotalRow());
-        
+
         // 打印前5个模型
         page.getRecords().stream().limit(5).forEach(model ->
                 log.info("模型: id={}, name={}, isChina={}, recommended={}",
@@ -51,10 +51,10 @@ class ModelServiceTest {
      */
     @Test
     void testGetAllModels() {
-        List<ModelVO> models = modelService.getAllModels();
+        List<ModelVO> models = modelService.getAllModels(null);
         assertNotNull(models, "模型列表不应为空");
         log.info("获取到{}个模型", models.size());
-        
+
         // 打印前5个模型
         models.stream().limit(5).forEach(model -> {
             log.info("模型: id={}, name={}, isChina={}",

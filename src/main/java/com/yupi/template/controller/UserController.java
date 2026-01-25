@@ -12,6 +12,7 @@ import com.yupi.template.exception.ErrorCode;
 import com.yupi.template.exception.ThrowUtils;
 import com.yupi.template.model.dto.user.*;
 import com.yupi.template.model.vo.LoginUserVO;
+import com.yupi.template.model.vo.UserStatisticsVO;
 import com.yupi.template.model.vo.UserVO;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -175,6 +176,19 @@ public class UserController {
         List<UserVO> userVOList = userService.getUserVOList(userPage.getRecords());
         userVOPage.setRecords(userVOList);
         return ResultUtils.success(userVOPage);
+    }
+
+    /**
+     * 获取用户统计数据
+     *
+     * @param httpRequest HTTP请求
+     * @return 统计数据
+     */
+    @GetMapping("/statistics")
+    public BaseResponse<UserStatisticsVO> getUserStatistics(HttpServletRequest httpRequest) {
+        User loginUser = userService.getLoginUser(httpRequest);
+        UserStatisticsVO statistics = userService.getUserStatistics(loginUser.getId());
+        return ResultUtils.success(statistics);
     }
 
     /**
