@@ -10,6 +10,7 @@ import CodeModePage from '@/pages/CodeModePage.vue'
 import BatchTestPage from '@/pages/BatchTestPage.vue'
 import TaskListPage from '@/pages/TaskListPage.vue'
 import TaskDetailPage from '@/pages/TaskDetailPage.vue'
+import TaskReportPage from '@/pages/TaskReportPage.vue'
 import TaskComparePage from '@/pages/TaskComparePage.vue'
 import ModelManagePage from '@/pages/admin/ModelManagePage.vue'
 import SceneManagePage from '@/pages/admin/SceneManagePage.vue'
@@ -77,6 +78,11 @@ const router = createRouter({
           path: 'detail/:id',
           name: '任务详情',
           component: TaskDetailPage,
+        },
+        {
+          path: 'report/:id',
+          name: '测试报告',
+          component: TaskReportPage,
         },
         {
           path: 'compare',

@@ -168,6 +168,14 @@
         <a-button style="margin-left: 8px" @click="handleViewDetail">
           查看详情
         </a-button>
+        <a-button
+          v-if="currentTask && currentTask.status === 'completed'"
+          type="primary"
+          style="margin-left: 8px"
+          @click="handleViewReport"
+        >
+          查看报告
+        </a-button>
         <a-button style="margin-left: 8px" @click="handleBackToList">
           返回列表
         </a-button>
@@ -611,6 +619,18 @@ const handleViewDetail = () => {
   if (currentTask.value) {
     router.push(`/batch-test/detail/${currentTask.value.id}`)
   }
+}
+
+const handleViewReport = () => {
+  if (!currentTask.value?.id) {
+    message.error('任务ID不存在')
+    return
+  }
+  if (currentTask.value.status !== 'completed') {
+    message.warning('任务未完成，暂无报告')
+    return
+  }
+  router.push(`/batch-test/report/${currentTask.value.id}`)
 }
 
 const handleRatingChange = async (resultId: string, rating: number) => {

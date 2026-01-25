@@ -93,6 +93,14 @@
               <a-button type="link" size="small" @click="handleView(record.id)">
                 查看
               </a-button>
+              <a-button
+                v-if="record.status === 'completed'"
+                type="link"
+                size="small"
+                @click="handleViewReport(record.id)"
+              >
+                报告
+              </a-button>
               <a-button type="link" size="small" @click="handleCopyTask(record)">
                 重新测试
               </a-button>
@@ -263,6 +271,10 @@ const handleCreate = () => {
 
 const handleView = (taskId: string) => {
   router.push(`/batch-test/detail/${taskId}`)
+}
+
+const handleViewReport = (taskId: string) => {
+  router.push(`/batch-test/report/${taskId}`)
 }
 
 const handleDelete = async (taskId: string) => {
