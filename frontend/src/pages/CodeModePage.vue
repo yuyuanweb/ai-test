@@ -460,12 +460,31 @@
 
           <!-- 水平平铺的提示词输入框 -->
           <div class="variants-horizontal">
-            <div v-for="(variant, idx) in variants" :key="idx" class="variant-card">
+            <div
+              v-for="(variant, idx) in variants"
+              :key="idx"
+              class="variant-card"
+              :class="{ 'variant-card-selected': selectedVariantIndex === idx }"
+              @click="selectVariant(idx)"
+            >
               <div class="variant-card-header">
                 <span class="variant-label">变体 {{ idx + 1 }}</span>
-                <button class="expand-btn" @click="expandVariant(idx)" title="放大编辑">
-                  <ExpandOutlined />
-                </button>
+                <div class="variant-actions" @click.stop>
+                  <a-button
+                    size="small"
+                    type="link"
+                    :loading="optimizingIndex === idx"
+                    @click="handleOptimizePrompt(idx)"
+                    :disabled="!variants[idx] || variants[idx].trim() === '' || isLoading"
+                    style="padding: 0 4px; height: 24px; font-size: 12px;"
+                  >
+                    <template #icon><ThunderboltOutlined /></template>
+                    优化
+                  </a-button>
+                  <button class="expand-btn" @click="expandVariant(idx)" title="放大编辑">
+                    <ExpandOutlined />
+                  </button>
+                </div>
               </div>
               <textarea
                 v-model="variants[idx]"
@@ -473,6 +492,8 @@
                 :disabled="isLoading"
                 class="variant-input-inline"
                 rows="3"
+                @focus="selectVariant(idx)"
+                @click.stop
               ></textarea>
             </div>
           </div>
@@ -576,6 +597,53 @@
         rows="15"
       ></textarea>
     </a-modal>
+
+    <!-- 优化结果抽屉 -->
+    <a-drawer
+      v-model:open="optimizationDrawerVisible"
+      title="提示词优化建议"
+      width="600px"
+      placement="right"
+    >
+      <div v-if="optimizationResult" class="optimization-result">
+        <!-- 问题列表 -->
+        <div class="optimization-section">
+          <h3 class="section-title">发现的问题</h3>
+          <ul class="issues-list">
+            <li v-for="(issue, idx) in optimizationResult.issues" :key="idx" class="issue-item">
+              {{ issue }}
+            </li>
+          </ul>
+        </div>
+
+        <!-- 优化后的提示词 -->
+        <div class="optimization-section">
+          <h3 class="section-title">优化后的提示词</h3>
+          <div class="optimized-prompt-box">
+            <pre class="optimized-prompt-text">{{ optimizationResult.optimizedPrompt }}</pre>
+            <a-button
+              type="primary"
+              size="small"
+              @click="applyOptimizedPrompt"
+              style="margin-top: 12px;"
+            >
+              应用优化
+            </a-button>
+          </div>
+        </div>
+
+        <!-- 改进点 -->
+        <div class="optimization-section">
+          <h3 class="section-title">改进说明</h3>
+          <ul class="improvements-list">
+            <li v-for="(improvement, idx) in optimizationResult.improvements" :key="idx" class="improvement-item">
+              {{ improvement }}
+            </li>
+          </ul>
+        </div>
+      </div>
+      <a-empty v-else description="暂无优化结果" />
+    </a-drawer>
   </div>
   </div>
 </template>
@@ -597,12 +665,14 @@ import {
   SwapOutlined,
   ExperimentOutlined,
   ExpandOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons-vue'
 import { createPostSSE } from '@/utils/sseClient'
 import { API_BASE_URL } from '@/config/env'
 import { listConversations, getConversation, getConversationMessages } from '@/api/conversationController'
 import { listModels, type ModelVO } from '@/api/modelController'
 import { addRating, getRating, getRatingsByConversationId, type RatingVO } from '@/api/ratingController'
+import { optimizePrompt, type PromptOptimizationVO } from '@/api/promptOptimizationController'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import CodeGeneratingHint from '@/components/CodeGeneratingHint.vue'
 import { useLoginUserStore } from '@/stores/loginUser'
@@ -646,6 +716,11 @@ const messagesWrapper = ref<HTMLElement | null>(null)
 const currentConversationId = ref<string>()
 const expandedCodeBlocks = ref<Set<string>>(new Set())
 const codeBlockRefs = ref<HTMLElement[]>([])
+const optimizingIndex = ref<number | null>(null)  // 正在优化的变体索引
+const optimizationDrawerVisible = ref(false)  // 优化结果抽屉显示状态
+const optimizationResult = ref<PromptOptimizationVO | null>(null)  // 优化结果
+const currentOptimizingVariantIndex = ref<number | null>(null)  // 当前正在优化的变体索引
+const selectedVariantIndex = ref<number>(0)  // 当前选中的变体索引
 
 const todayConversations = ref<any[]>([])
 const yesterdayConversations = ref<any[]>([])
@@ -936,6 +1011,68 @@ const expandVariant = (index: number) => {
 
 const closeExpandedVariant = () => {
   expandedVariantIndex.value = null
+}
+
+// 选中变体
+const selectVariant = (index: number) => {
+  selectedVariantIndex.value = index
+}
+
+// 优化提示词
+const handleOptimizePrompt = async (variantIndex: number) => {
+  const prompt = variants.value[variantIndex]
+  if (!prompt || prompt.trim() === '') {
+    message.warning('请先输入提示词')
+    return
+  }
+
+  optimizingIndex.value = variantIndex
+  currentOptimizingVariantIndex.value = variantIndex
+  optimizationResult.value = null
+
+  try {
+    // 查找对应的AI回答（如果有）
+    let aiResponse: string | undefined = undefined
+    if (messages.value.length > 0) {
+      // 查找最后一个assistant消息中对应变体的响应
+      const lastAssistantMsg = messages.value
+        .filter(m => m.type === 'assistant')
+        .pop()
+      if (lastAssistantMsg && lastAssistantMsg.responses) {
+        const variantResp = lastAssistantMsg.responses.find((r: any) => r.variantIndex === variantIndex)
+        if (variantResp && variantResp.fullContent) {
+          aiResponse = variantResp.fullContent
+        }
+      }
+    }
+
+    const res: any = await optimizePrompt({
+      originalPrompt: prompt,
+      aiResponse: aiResponse
+    })
+
+    if (res.data && res.data.code === 0 && res.data.data) {
+      optimizationResult.value = res.data.data
+      optimizationDrawerVisible.value = true
+      message.success('优化分析完成')
+    } else {
+      message.error(res.data?.message || '优化失败')
+    }
+  } catch (error) {
+    console.error('优化提示词失败:', error)
+    message.error('优化失败: ' + (error instanceof Error ? error.message : '未知错误'))
+  } finally {
+    optimizingIndex.value = null
+  }
+}
+
+// 应用优化后的提示词
+const applyOptimizedPrompt = () => {
+  if (optimizationResult.value && currentOptimizingVariantIndex.value !== null) {
+    variants.value[currentOptimizingVariantIndex.value] = optimizationResult.value.optimizedPrompt
+    message.success('已应用优化后的提示词')
+    optimizationDrawerVisible.value = false
+  }
 }
 
 const getAvailableOptionsForIndex = (currentIndex: number) => {
@@ -3236,6 +3373,20 @@ onMounted(() => {
   padding: 12px;
   display: flex;
   flex-direction: column;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.variant-card:hover {
+  border-color: #1890ff;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.1);
+}
+
+.variant-card-selected {
+  border-color: #1890ff;
+  border-width: 2px;
+  background: #f0f7ff;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.2);
 }
 
 .variant-card-header {
@@ -3243,6 +3394,12 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
+}
+
+.variant-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .variant-label {
@@ -3374,5 +3531,64 @@ onMounted(() => {
 .rating-btn.rating-selected:hover {
   background: #4338ca;
   border-color: #4338ca;
+}
+
+/* 优化结果样式 */
+.optimization-result {
+  padding: 0;
+}
+
+.optimization-section {
+  margin-bottom: 24px;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.issues-list,
+.improvements-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.issue-item,
+.improvement-item {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: #f9fafb;
+  border-left: 3px solid #ef4444;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #374151;
+}
+
+.improvement-item {
+  border-left-color: #10b981;
+}
+
+.optimized-prompt-box {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.optimized-prompt-text {
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #1f2937;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 </style>

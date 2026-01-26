@@ -168,6 +168,15 @@
           <div class="header-actions">
             <a-button
               size="small"
+              type="primary"
+              @click="showTemplateLibrary"
+              style="flex-shrink: 0;"
+            >
+              <template #icon><AppstoreOutlined /></template>
+              模板库
+            </a-button>
+            <a-button
+              size="small"
               type="dashed"
               @click="addVariant"
               :disabled="variants.length >= 5"
@@ -190,12 +199,31 @@
 
         <!-- 水平平铺的提示词输入框 -->
         <div class="variants-horizontal">
-          <div v-for="(variant, idx) in variants" :key="idx" class="variant-card">
+          <div
+            v-for="(variant, idx) in variants"
+            :key="idx"
+            class="variant-card"
+            :class="{ 'variant-card-selected': selectedVariantIndex === idx }"
+            @click="selectVariant(idx)"
+          >
             <div class="variant-card-header">
               <span class="variant-label">变体 {{ idx + 1 }}</span>
-              <button class="expand-btn" @click="expandVariant(idx)" title="放大编辑">
-                <ExpandOutlined />
-              </button>
+              <div class="variant-actions" @click.stop>
+                <a-button
+                  size="small"
+                  type="link"
+                  :loading="optimizingIndex === idx"
+                  @click="handleOptimizePrompt(idx)"
+                  :disabled="!variants[idx] || variants[idx].trim() === '' || isStreaming"
+                  style="padding: 0 4px; height: 24px; font-size: 12px;"
+                >
+                  <template #icon><ThunderboltOutlined /></template>
+                  优化
+                </a-button>
+                <button class="expand-btn" @click="expandVariant(idx)" title="放大编辑">
+                  <ExpandOutlined />
+                </button>
+              </div>
             </div>
             <textarea
               v-model="variants[idx]"
@@ -203,6 +231,8 @@
               :disabled="isStreaming"
               class="variant-input-inline"
               rows="3"
+              @focus="selectVariant(idx)"
+              @click.stop
             ></textarea>
           </div>
         </div>
@@ -233,6 +263,147 @@
           rows="15"
         ></textarea>
       </a-modal>
+
+      <!-- 模板库抽屉 -->
+      <a-drawer
+        v-model:open="templateLibraryVisible"
+        title="提示词模板库"
+        width="700px"
+        placement="right"
+      >
+        <div class="template-library">
+          <!-- 策略筛选 -->
+          <div class="strategy-filter">
+            <a-radio-group v-model:value="selectedStrategy" @change="loadTemplates">
+              <a-radio-button value="">全部</a-radio-button>
+              <a-radio-button value="direct">直接提问</a-radio-button>
+              <a-radio-button value="cot">CoT</a-radio-button>
+              <a-radio-button value="role_play">角色扮演</a-radio-button>
+              <a-radio-button value="few_shot">Few-shot</a-radio-button>
+            </a-radio-group>
+          </div>
+
+          <!-- 模板列表 -->
+          <div class="template-list" v-if="templates.length > 0">
+            <div
+              v-for="template in templates"
+              :key="template.id"
+              class="template-item"
+              @click="selectTemplate(template)"
+            >
+              <div class="template-header">
+                <div class="template-title-row">
+                  <span class="template-name">{{ template.name }}</span>
+                  <a-tag v-if="template.isPreset" color="blue">预设</a-tag>
+                  <a-tag v-else color="green">自定义</a-tag>
+                </div>
+                <a-tag color="purple">{{ template.strategyName }}</a-tag>
+              </div>
+              <div class="template-description" v-if="template.description">
+                {{ template.description }}
+              </div>
+              <div class="template-preview">
+                {{ template.content?.substring(0, 100) }}{{ template.content && template.content.length > 100 ? '...' : '' }}
+              </div>
+              <div class="template-footer">
+                <span class="template-usage">使用 {{ template.usageCount || 0 }} 次</span>
+              </div>
+            </div>
+          </div>
+          <a-empty v-else description="暂无模板" />
+
+          <!-- 创建模板按钮 -->
+          <div class="template-actions">
+            <a-button type="dashed" block @click="showCreateTemplateModal">
+              <template #icon><PlusOutlined /></template>
+              创建自定义模板
+            </a-button>
+          </div>
+        </div>
+      </a-drawer>
+
+      <!-- 创建模板对话框 -->
+      <a-modal
+        v-model:open="createTemplateModalVisible"
+        title="创建提示词模板"
+        width="700px"
+        @ok="handleCreateTemplate"
+        @cancel="resetCreateTemplateForm"
+      >
+        <a-form :model="createTemplateForm" layout="vertical">
+          <a-form-item label="模板名称" required>
+            <a-input v-model:value="createTemplateForm.name" placeholder="请输入模板名称" />
+          </a-form-item>
+          <a-form-item label="策略类型" required>
+            <a-select v-model:value="createTemplateForm.strategy" placeholder="请选择策略类型">
+              <a-select-option value="direct">直接提问</a-select-option>
+              <a-select-option value="cot">CoT (思维链)</a-select-option>
+              <a-select-option value="role_play">角色扮演</a-select-option>
+              <a-select-option value="few_shot">Few-shot (示例学习)</a-select-option>
+            </a-select>
+          </a-form-item>
+          <a-form-item label="模板描述">
+            <a-textarea v-model:value="createTemplateForm.description" :rows="2" placeholder="请输入模板描述" />
+          </a-form-item>
+          <a-form-item label="模板内容" required>
+            <a-textarea
+              v-model:value="createTemplateForm.content"
+              :rows="8"
+              placeholder="请输入模板内容，支持使用 {变量名} 作为占位符"
+            />
+          </a-form-item>
+          <a-form-item label="分类">
+            <a-input v-model:value="createTemplateForm.category" placeholder="请输入分类（可选）" />
+          </a-form-item>
+        </a-form>
+      </a-modal>
+
+      <!-- 优化结果抽屉 -->
+      <a-drawer
+        v-model:open="optimizationDrawerVisible"
+        title="提示词优化建议"
+        width="600px"
+        placement="right"
+      >
+        <div v-if="optimizationResult" class="optimization-result">
+          <!-- 问题列表 -->
+          <div class="optimization-section">
+            <h3 class="section-title">发现的问题</h3>
+            <ul class="issues-list">
+              <li v-for="(issue, idx) in optimizationResult.issues" :key="idx" class="issue-item">
+                {{ issue }}
+              </li>
+            </ul>
+          </div>
+
+          <!-- 优化后的提示词 -->
+          <div class="optimization-section">
+            <h3 class="section-title">优化后的提示词</h3>
+            <div class="optimized-prompt-box">
+              <pre class="optimized-prompt-text">{{ optimizationResult.optimizedPrompt }}</pre>
+              <a-button
+                type="primary"
+                size="small"
+                @click="applyOptimizedPrompt"
+                style="margin-top: 12px;"
+              >
+                应用优化
+              </a-button>
+            </div>
+          </div>
+
+          <!-- 改进点 -->
+          <div class="optimization-section">
+            <h3 class="section-title">改进说明</h3>
+            <ul class="improvements-list">
+              <li v-for="(improvement, idx) in optimizationResult.improvements" :key="idx" class="improvement-item">
+                {{ improvement }}
+              </li>
+            </ul>
+          </div>
+        </div>
+        <a-empty v-else description="暂无优化结果" />
+      </a-drawer>
     </div>
   </div>
 </template>
@@ -241,13 +412,15 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { SwapOutlined, ExperimentOutlined, ExpandOutlined } from '@ant-design/icons-vue'
+import { SwapOutlined, ExperimentOutlined, ExpandOutlined, ThunderboltOutlined, AppstoreOutlined, PlusOutlined } from '@ant-design/icons-vue'
 import { listModels } from '@/api/modelController'
 import { getConversation, getConversationMessages, type StreamChunkVO } from '@/api/conversationController'
 import { createPostSSE } from '@/utils/sseClient'
 import { API_BASE_URL } from '@/config/env'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import { addRating, getRating, getRatingsByConversationId, type RatingVO } from '@/api/ratingController'
+import { optimizePrompt, type PromptOptimizationVO } from '@/api/promptOptimizationController'
+import { listTemplates, createTemplate, incrementUsage, type PromptTemplateVO } from '@/api/promptTemplateController'
 
 const router = useRouter()
 const route = useRoute()
@@ -270,6 +443,22 @@ const sseController = ref<any>(null)
 const expandedVariantIndex = ref<number | null>(null)
 const originalVariants = ref<string[]>([])  // 会话创建时的原始变体
 const messagesWrapper = ref<HTMLElement | null>(null)  // 消息列表容器引用
+const optimizingIndex = ref<number | null>(null)  // 正在优化的变体索引
+const optimizationDrawerVisible = ref(false)  // 优化结果抽屉显示状态
+const optimizationResult = ref<PromptOptimizationVO | null>(null)  // 优化结果
+const currentOptimizingVariantIndex = ref<number | null>(null)  // 当前正在优化的变体索引
+const templateLibraryVisible = ref(false)  // 模板库抽屉显示状态
+const templates = ref<PromptTemplateVO[]>([])  // 模板列表
+const selectedStrategy = ref<string>('')  // 选中的策略类型
+const createTemplateModalVisible = ref(false)  // 创建模板对话框显示状态
+const createTemplateForm = ref({
+  name: '',
+  strategy: '',
+  description: '',
+  content: '',
+  category: ''
+})  // 创建模板表单
+const selectedVariantIndex = ref<number>(0)  // 当前选中的变体索引
 
 const handleModeChange = (mode: string) => {
   router.push(`/${mode}`)
@@ -584,6 +773,167 @@ const expandVariant = (index: number) => {
 // 关闭放大编辑
 const closeExpandedVariant = () => {
   expandedVariantIndex.value = null
+}
+
+// 优化提示词
+const handleOptimizePrompt = async (variantIndex: number) => {
+  const prompt = variants.value[variantIndex]
+  if (!prompt || prompt.trim() === '') {
+    message.warning('请先输入提示词')
+    return
+  }
+
+  optimizingIndex.value = variantIndex
+  currentOptimizingVariantIndex.value = variantIndex
+  optimizationResult.value = null
+
+  try {
+    // 查找对应的AI回答（如果有）
+    let aiResponse: string | undefined = undefined
+    if (messages.value.length > 0) {
+      const lastAssistantMsg = messages.value
+        .filter(m => m.type === 'assistant')
+        .pop()
+      if (lastAssistantMsg && lastAssistantMsg.results && lastAssistantMsg.results[variantIndex]) {
+        aiResponse = lastAssistantMsg.results[variantIndex].fullContent
+      }
+    }
+
+    const res: any = await optimizePrompt({
+      originalPrompt: prompt,
+      aiResponse: aiResponse
+    })
+
+    if (res.data && res.data.code === 0 && res.data.data) {
+      optimizationResult.value = res.data.data
+      optimizationDrawerVisible.value = true
+      message.success('优化分析完成')
+    } else {
+      message.error(res.data?.message || '优化失败')
+    }
+  } catch (error) {
+    console.error('优化提示词失败:', error)
+    message.error('优化失败: ' + (error instanceof Error ? error.message : '未知错误'))
+  } finally {
+    optimizingIndex.value = null
+  }
+}
+
+// 应用优化后的提示词
+const applyOptimizedPrompt = () => {
+  if (optimizationResult.value && currentOptimizingVariantIndex.value !== null) {
+    variants.value[currentOptimizingVariantIndex.value] = optimizationResult.value.optimizedPrompt
+    message.success('已应用优化后的提示词')
+    optimizationDrawerVisible.value = false
+  }
+}
+
+// 选中变体
+const selectVariant = (index: number) => {
+  selectedVariantIndex.value = index
+}
+
+// 显示模板库
+const showTemplateLibrary = () => {
+  templateLibraryVisible.value = true
+  loadTemplates()
+  // 如果没有选中的变体，默认选中第一个
+  if (selectedVariantIndex.value === null || selectedVariantIndex.value < 0 || selectedVariantIndex.value >= variants.value.length) {
+    selectedVariantIndex.value = 0
+  }
+}
+
+// 加载模板列表
+const loadTemplates = async () => {
+  try {
+    const res: any = await listTemplates({
+      strategy: selectedStrategy.value || undefined
+    })
+    if (res.data && res.data.code === 0 && res.data.data) {
+      templates.value = res.data.data
+    }
+  } catch (error) {
+    console.error('加载模板列表失败:', error)
+    message.error('加载模板列表失败')
+  }
+}
+
+// 选择模板
+const selectTemplate = async (template: PromptTemplateVO) => {
+  if (!template.content) {
+    message.warning('模板内容为空')
+    return
+  }
+
+  try {
+    // 增加使用次数
+    if (template.id) {
+      await incrementUsage(template.id)
+    }
+
+    // 应用到选中的变体，如果没有选中或索引无效，默认应用到第一个
+    const targetIndex = (selectedVariantIndex.value !== null &&
+      selectedVariantIndex.value >= 0 &&
+      selectedVariantIndex.value < variants.value.length)
+      ? selectedVariantIndex.value
+      : 0
+
+    // 应用模板内容
+    variants.value[targetIndex] = template.content
+
+    message.success(`模板已应用到变体 ${targetIndex + 1}`)
+    templateLibraryVisible.value = false
+  } catch (error) {
+    console.error('应用模板失败:', error)
+    message.error('应用模板失败')
+  }
+}
+
+// 显示创建模板对话框
+const showCreateTemplateModal = () => {
+  createTemplateModalVisible.value = true
+  resetCreateTemplateForm()
+}
+
+// 重置创建模板表单
+const resetCreateTemplateForm = () => {
+  createTemplateForm.value = {
+    name: '',
+    strategy: '',
+    description: '',
+    content: '',
+    category: ''
+  }
+}
+
+// 创建模板
+const handleCreateTemplate = async () => {
+  if (!createTemplateForm.value.name || !createTemplateForm.value.strategy || !createTemplateForm.value.content) {
+    message.warning('请填写必填项')
+    return
+  }
+
+  try {
+    const res: any = await createTemplate({
+      name: createTemplateForm.value.name,
+      strategy: createTemplateForm.value.strategy,
+      description: createTemplateForm.value.description,
+      content: createTemplateForm.value.content,
+      category: createTemplateForm.value.category
+    })
+
+    if (res.data && res.data.code === 0) {
+      message.success('模板创建成功')
+      createTemplateModalVisible.value = false
+      resetCreateTemplateForm()
+      loadTemplates()
+    } else {
+      message.error(res.data?.message || '创建模板失败')
+    }
+  } catch (error) {
+    console.error('创建模板失败:', error)
+    message.error('创建模板失败')
+  }
 }
 
 // 加载历史会话
@@ -1141,6 +1491,20 @@ onUnmounted(() => {
   padding: 12px;
   display: flex;
   flex-direction: column;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.variant-card:hover {
+  border-color: #1890ff;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.1);
+}
+
+.variant-card-selected {
+  border-color: #1890ff;
+  border-width: 2px;
+  background: #f0f7ff;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.2);
 }
 
 .variant-card-header {
@@ -1148,6 +1512,12 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
+}
+
+.variant-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .variant-label {
@@ -1481,5 +1851,144 @@ onUnmounted(() => {
 
 .typing-dots span:nth-child(2) {
   animation-delay: -0.16s;
+}
+
+/* 优化结果样式 */
+.optimization-result {
+  padding: 0;
+}
+
+.optimization-section {
+  margin-bottom: 24px;
+}
+
+.section-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.issues-list,
+.improvements-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.issue-item,
+.improvement-item {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  background: #f9fafb;
+  border-left: 3px solid #ef4444;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #374151;
+}
+
+.improvement-item {
+  border-left-color: #10b981;
+}
+
+.optimized-prompt-box {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.optimized-prompt-text {
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #1f2937;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* 模板库样式 */
+.template-library {
+  padding: 0;
+}
+
+.strategy-filter {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.template-list {
+  max-height: calc(100vh - 300px);
+  overflow-y: auto;
+  margin-bottom: 20px;
+}
+
+.template-item {
+  padding: 16px;
+  margin-bottom: 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.template-item:hover {
+  background: #f3f4f6;
+  border-color: #1890ff;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.1);
+}
+
+.template-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.template-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.template-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.template-description {
+  font-size: 13px;
+  color: #6b7280;
+  margin-bottom: 8px;
+}
+
+.template-preview {
+  font-size: 12px;
+  color: #9ca3af;
+  background: #fff;
+  padding: 8px 12px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.template-footer {
+  display: flex;
+  justify-content: flex-end;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.template-actions {
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
 }
 </style>
