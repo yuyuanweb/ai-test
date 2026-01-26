@@ -46,6 +46,7 @@ export interface CreateBatchTestRequest {
   topK?: number
   frequencyPenalty?: number
   presencePenalty?: number
+  enableAiScoring?: boolean
 }
 
 export interface TaskProgressVO {

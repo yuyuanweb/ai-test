@@ -117,6 +117,9 @@ public class BatchTestServiceImpl implements BatchTestService {
         if (request.getPresencePenalty() != null) {
             configMap.put("presencePenalty", request.getPresencePenalty());
         }
+        if (request.getEnableAiScoring() != null) {
+            configMap.put("enableAiScoring", request.getEnableAiScoring());
+        }
         String configJson = configMap.isEmpty() ? null : JSONUtil.toJsonStr(configMap);
 
         TestTask testTask = TestTask.builder()

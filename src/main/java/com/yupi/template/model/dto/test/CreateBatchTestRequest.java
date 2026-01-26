@@ -69,6 +69,12 @@ public class CreateBatchTestRequest implements Serializable {
     @Schema(description = "Presence Penalty 参数", example = "0.0")
     private Float presencePenalty;
 
+    /**
+     * 是否启用AI评分
+     */
+    @Schema(description = "是否启用AI评分", example = "false")
+    private Boolean enableAiScoring;
+
     private static final long serialVersionUID = 1L;
 }
 
