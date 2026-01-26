@@ -59,6 +59,12 @@ declare namespace API {
     message?: string
   }
 
+  type BaseResponsePromptOptimizationVO = {
+    code?: number
+    data?: PromptOptimizationVO
+    message?: string
+  }
+
   type BaseResponseRatingVO = {
     code?: number
     data?: RatingVO
@@ -252,6 +258,18 @@ declare namespace API {
     totalPage?: number
     totalRow?: number
     optimizeCountQuery?: boolean
+  }
+
+  type PromptOptimizationRequest = {
+    originalPrompt?: string
+    aiResponse?: string
+    evaluationModel?: string
+  }
+
+  type PromptOptimizationVO = {
+    issues?: string[]
+    optimizedPrompt?: string
+    improvements?: string[]
   }
 
   type PromptLabRequest = {
