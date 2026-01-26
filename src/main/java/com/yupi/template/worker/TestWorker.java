@@ -10,6 +10,8 @@ import com.yupi.template.model.dto.test.SubTaskMessage;
 import com.yupi.template.model.entity.Model;
 import com.yupi.template.model.entity.TestResult;
 import com.yupi.template.model.entity.TestTask;
+import com.yupi.template.model.dto.evaluation.AIScoreResult;
+import com.yupi.template.service.AIScoringService;
 import com.yupi.template.service.BatchTestService;
 import com.yupi.template.service.ModelService;
 import com.yupi.template.service.ProgressNotificationService;
@@ -68,6 +70,9 @@ public class TestWorker {
 
     @Resource
     private ProgressNotificationService progressNotificationService;
+
+    @Resource
+    private AIScoringService aiScoringService;
 
     @RabbitListener(queues = RabbitMQConstant.TEST_QUEUE)
     public void processSubTask(SubTaskMessage subTask) {
@@ -214,6 +219,33 @@ public class TestWorker {
 
             testResultMapper.insert(testResult);
 
+            // AI评分（如果启用）
+            boolean enableAiScoring = checkEnableAiScoring(task);
+            if (enableAiScoring) {
+                try {
+                    log.info("开始AI评分: taskId={}, model={}, prompt={}", 
+                            subTask.getTaskId(), subTask.getModelName(), subTask.getPromptTitle());
+                    
+                    AIScoreResult aiScoreResult = aiScoringService.scoreWithMultipleJudges(
+                            subTask.getPromptContent(),
+                            outputText,
+                            subTask.getModelName()
+                    );
+
+                    String aiScoreJson = JSONUtil.toJsonStr(aiScoreResult);
+                    testResult.setAiScore(aiScoreJson);
+                    testResult.setUpdateTime(LocalDateTime.now());
+                    testResultMapper.update(testResult);
+
+                    log.info("AI评分完成: taskId={}, model={}, judges={}, averageRating={}, consistency={}", 
+                            subTask.getTaskId(), subTask.getModelName(),
+                            aiScoreResult.judges().size(), aiScoreResult.averageRating(), aiScoreResult.consistency());
+                } catch (Exception e) {
+                    log.error("AI评分失败: taskId={}, model={}, prompt={}", 
+                            subTask.getTaskId(), subTask.getModelName(), subTask.getPromptTitle(), e);
+                }
+            }
+
             // 更新模型使用统计（全局）
             int totalTokens = inputTokens.get() + outputTokens.get();
             modelService.updateModelUsage(subTask.getModelName(), totalTokens, cost);
@@ -305,5 +337,27 @@ public class TestWorker {
                 .divide(BigDecimal.valueOf(ConversationConstant.TOKENS_PER_MILLION), 6, RoundingMode.HALF_UP);
 
         return inputCost.add(outputCost);
+    }
+
+    /**
+     * 检查是否启用AI评分
+     */
+    private boolean checkEnableAiScoring(TestTask task) {
+        if (task.getConfig() == null || task.getConfig().trim().isEmpty()) {
+            return false;
+        }
+        try {
+            Map<String, Object> configMap = JSONUtil.parseObj(task.getConfig());
+            Object enableAiScoring = configMap.get("enableAiScoring");
+            if (enableAiScoring instanceof Boolean) {
+                return (Boolean) enableAiScoring;
+            }
+            if (enableAiScoring instanceof String) {
+                return Boolean.parseBoolean((String) enableAiScoring);
+            }
+        } catch (Exception e) {
+            log.warn("解析AI评分配置失败: taskId={}, error={}", task.getId(), e.getMessage());
+        }
+        return false;
     }
 }
