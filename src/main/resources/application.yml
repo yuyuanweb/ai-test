@@ -86,6 +86,21 @@ mybatis-flex:
     log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
   global-config:
     print-banner: true
+# Actuator 监控
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus, info
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
 # 日志配置
 logging:
   level:
