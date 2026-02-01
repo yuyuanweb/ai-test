@@ -1,20 +1,34 @@
-version: '3.8'
-
 services:
   backend:
     build: .
     container_name: backend
     ports:
       - "8123:8123"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8123/api/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     environment:
       - SPRING_PROFILES_ACTIVE=prod
-      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/my_db?useSSL=false&allowPublicKeyRetrieval=true
+      # 使用 Docker 服务名连接，容器内部端口是 3306
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/ai_eval?useSSL=false&allowPublicKeyRetrieval=true&characterEncoding=utf8&useUnicode=true
       - SPRING_DATASOURCE_USERNAME=root
       - SPRING_DATASOURCE_PASSWORD=123456
+      # Redis 容器内部端口是 6379
       - SPRING_DATA_REDIS_HOST=redis
+      - SPRING_DATA_REDIS_PORT=6379
+      - SPRING_DATA_REDIS_PASSWORD=
+      # RabbitMQ 容器内部端口是 5672
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_RABBITMQ_PORT=5672
+      - SPRING_RABBITMQ_USERNAME=guest
+      - SPRING_RABBITMQ_PASSWORD=guest
     depends_on:
       - mysql
       - redis
+      - rabbitmq
     networks:
       - app-network
 
@@ -22,7 +36,7 @@ services:
     build: ./frontend
     container_name: frontend
     ports:
-      - "80:80"
+      - "8090:80"
     depends_on:
       - backend
     networks:
@@ -31,11 +45,14 @@ services:
   mysql:
     image: mysql:8.0
     container_name: mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     environment:
       MYSQL_ROOT_PASSWORD: 123456
-      MYSQL_DATABASE: my_db
+      MYSQL_DATABASE: ai_eval
+      MYSQL_ROOT_HOST: '%'
+      TZ: Asia/Shanghai
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       - mysql-data:/var/lib/mysql
       - ./sql/create_table.sql:/docker-entrypoint-initdb.d/init.sql
@@ -46,7 +63,16 @@ services:
     image: redis:7-alpine
     container_name: redis
     ports:
-      - "6379:6379"
+      - "6380:6379"
+    networks:
+      - app-network
+
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: rabbitmq
+    ports:
+      - "5673:5672"
+      - "15673:15672"
     networks:
       - app-network
 
