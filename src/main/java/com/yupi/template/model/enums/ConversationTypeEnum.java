@@ -23,7 +23,12 @@ public enum ConversationTypeEnum {
     /**
      * Code Mode 代码模式
      */
-    CODE_MODE("code_mode", "代码模式");
+    CODE_MODE("code_mode", "代码模式"),
+
+    /**
+     * Battle 匿名模型对比
+     */
+    BATTLE("battle", "匿名对比");
 
     private final String value;
     private final String text;

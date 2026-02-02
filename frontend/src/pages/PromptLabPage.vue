@@ -17,6 +17,10 @@
             <ExperimentOutlined style="margin-right: 8px" />
             提示词实验
           </a-select-option>
+          <a-select-option value="battle">
+            <TrophyOutlined style="margin-right: 8px" />
+            匿名对比
+          </a-select-option>
         </a-select>
 
         <!-- 模型选择器 -->
@@ -412,7 +416,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { SwapOutlined, ExperimentOutlined, ExpandOutlined, ThunderboltOutlined, AppstoreOutlined, PlusOutlined } from '@ant-design/icons-vue'
+import { SwapOutlined, ExperimentOutlined, TrophyOutlined, ExpandOutlined, ThunderboltOutlined, AppstoreOutlined, PlusOutlined } from '@ant-design/icons-vue'
 import { listModels } from '@/api/modelController'
 import { getConversation, getConversationMessages, type StreamChunkVO } from '@/api/conversationController'
 import { createPostSSE } from '@/utils/sseClient'
