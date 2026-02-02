@@ -99,7 +99,8 @@ create table if not exists model
     isDelete        tinyint      default 0             not null comment '逻辑删除',
     index idx_provider (provider, isDelete),
     index idx_recommended (recommended, isDelete),
-    index idx_updateTime (updateTime)
+    index idx_updateTime (updateTime),
+    index idx_list (isDelete, isChina, recommended, updateTime)
 ) comment '模型信息表' collate = utf8mb4_unicode_ci;
 
 -- 用户评分表
@@ -250,6 +251,7 @@ create table if not exists test_result
     updateTime       datetime default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP comment '更新时间',
     isDelete        tinyint  default 0                 not null comment '逻辑删除',
     index idx_task (taskId, isDelete),
+    index idx_task_create (taskId, createTime),
     index idx_model (modelName, isDelete),
     index idx_user (userId, isDelete),
     index idx_scene (sceneId, isDelete),
@@ -292,7 +294,8 @@ create table if not exists prompt_template
     index idx_user (userId, isDelete),
     index idx_strategy (strategy, isDelete),
     index idx_preset (isPreset, isDelete),
-    index idx_category (category, isDelete)
+    index idx_category (category, isDelete),
+    index idx_list_pt (isDelete, isPreset, usageCount, createTime)
 ) comment '提示词模板表' collate = utf8mb4_unicode_ci;
 
 -- 初始化预设模板数据

@@ -25,6 +25,8 @@ import com.yupi.template.service.ProgressNotificationService;
 import com.yupi.template.model.vo.TaskProgressVO;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.core.MessageDeliveryMode;
+import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -166,6 +168,17 @@ public class BatchTestServiceImpl implements BatchTestService {
             }
         }
 
+        int priority = totalSubtasks <= RabbitMQConstant.TOTAL_SUBTASKS_THRESHOLD_HIGH
+                ? RabbitMQConstant.PRIORITY_HIGH
+                : (totalSubtasks <= RabbitMQConstant.TOTAL_SUBTASKS_THRESHOLD_NORMAL
+                ? RabbitMQConstant.PRIORITY_NORMAL
+                : RabbitMQConstant.PRIORITY_LOW);
+        MessagePostProcessor postProcessor = msg -> {
+            msg.getMessageProperties().setPriority(priority);
+            msg.getMessageProperties().setDeliveryMode(MessageDeliveryMode.PERSISTENT);
+            return msg;
+        };
+
         // 在事务提交后再发送消息到队列，确保任务记录已提交
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
@@ -175,13 +188,14 @@ public class BatchTestServiceImpl implements BatchTestService {
                     rabbitTemplate.convertAndSend(
                             RabbitMQConstant.TEST_EXCHANGE,
                             RabbitMQConstant.TEST_ROUTING_KEY,
-                            subTask
+                            subTask,
+                            postProcessor
                     );
                     subTaskCount++;
-                    log.debug("发送子任务到队列: taskId={}, model={}, prompt={}, subTaskCount={}/{}", 
-                            taskId, subTask.getModelName(), subTask.getPromptTitle(), subTaskCount, subTaskMessages.size());
+                    log.debug("发送子任务到队列: taskId={}, model={}, prompt={}, priority={}, subTaskCount={}/{}",
+                            taskId, subTask.getModelName(), subTask.getPromptTitle(), priority, subTaskCount, subTaskMessages.size());
                 }
-                log.info("子任务发送完成: taskId={}, 已发送={}, 预期={}", taskId, subTaskCount, subTaskMessages.size());
+                log.info("子任务发送完成: taskId={}, 已发送={}, 预期={}, priority={}", taskId, subTaskCount, subTaskMessages.size(), priority);
             }
         });
 
@@ -302,45 +316,44 @@ public class BatchTestServiceImpl implements BatchTestService {
     }
 
     @Override
-    public void updateTaskProgress(String taskId, int completedSubtasks, String currentModel, String currentPrompt) {
-        TestTask task = testTaskMapper.selectOneById(taskId);
-        if (task == null) {
-            log.warn("更新任务进度失败: 任务不存在, taskId={}", taskId);
+    public void updateTaskProgress(String taskId, String currentModel, String currentPrompt) {
+        int rows = testTaskMapper.incrementCompletedSubtasks(taskId);
+        if (rows <= 0) {
+            log.debug("更新任务进度跳过: 任务已取消或已失败, taskId={}", taskId);
             return;
         }
-
-        task.setCompletedSubtasks(completedSubtasks);
-        task.setUpdateTime(LocalDateTime.now());
-
-        if ("pending".equals(task.getStatus()) && completedSubtasks > 0) {
-            task.setStatus("running");
-            if (task.getStartedAt() == null) {
-                task.setStartedAt(LocalDateTime.now());
-            }
+        TestTask task = testTaskMapper.selectOneById(taskId);
+        if (task == null) {
+            return;
         }
-
-        if (completedSubtasks >= task.getTotalSubtasks()) {
-            task.setStatus("completed");
-            task.setCompletedAt(LocalDateTime.now());
-        }
-
-        testTaskMapper.update(task);
-
         int percentage = task.getTotalSubtasks() > 0
-                ? (int) ((double) completedSubtasks / task.getTotalSubtasks() * 100)
+                ? (int) ((double) task.getCompletedSubtasks() / task.getTotalSubtasks() * 100)
                 : 0;
-
         TaskProgressVO progress = TaskProgressVO.builder()
                 .taskId(taskId)
                 .percentage(percentage)
-                .completedSubtasks(completedSubtasks)
+                .completedSubtasks(task.getCompletedSubtasks())
                 .totalSubtasks(task.getTotalSubtasks())
                 .currentModel(currentModel)
                 .currentPrompt(currentPrompt)
                 .status(task.getStatus())
                 .timestamp(System.currentTimeMillis())
                 .build();
+        progressNotificationService.sendProgress(taskId, progress);
+    }
 
+    @Override
+    public void markTaskFailed(String taskId) {
+        int rows = testTaskMapper.incrementCompletedSubtasksAndFail(taskId);
+        if (rows <= 0) {
+            log.debug("标记任务失败跳过: 任务已非 pending/running, taskId={}", taskId);
+            return;
+        }
+        TaskProgressVO progress = TaskProgressVO.builder()
+                .taskId(taskId)
+                .status("failed")
+                .timestamp(System.currentTimeMillis())
+                .build();
         progressNotificationService.sendProgress(taskId, progress);
     }
 

@@ -12,6 +12,8 @@ import com.yupi.template.model.dto.test.UpdateTestResultRatingRequest;
 import com.yupi.template.model.entity.TestResult;
 import com.yupi.template.model.entity.TestTask;
 import com.yupi.template.model.entity.User;
+import com.yupi.template.ratelimit.RateLimit;
+import com.yupi.template.ratelimit.RateLimitType;
 import com.yupi.template.service.BatchTestService;
 import com.yupi.template.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -43,6 +45,7 @@ public class BatchTestController {
     /**
      * 创建批量测试任务
      */
+    @RateLimit(limitType = RateLimitType.USER, rate = 3, rateInterval = 60, message = "批量测试创建过于频繁，请稍后再试")
     @PostMapping("/create")
     @Operation(summary = "创建批量测试任务")
     public BaseResponse<String> createBatchTestTask(

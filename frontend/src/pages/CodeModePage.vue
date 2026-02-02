@@ -1301,6 +1301,10 @@ const sendMessage = async () => {
           isLoading.value = false
           message.error('请求失败')
         },
+        onBusinessError: (data) => {
+          isLoading.value = false
+          message.error(data.message || '请求过于频繁，请稍后再试')
+        },
         onComplete: () => {
           isLoading.value = false
         },
@@ -1454,6 +1458,10 @@ const handlePromptSubmit = async () => {
           console.error('SSE错误:', err)
           isLoading.value = false
           message.error('请求失败')
+        },
+        onBusinessError: (data) => {
+          isLoading.value = false
+          message.error(data.message || '请求过于频繁，请稍后再试')
         },
         onComplete: () => {
           isLoading.value = false

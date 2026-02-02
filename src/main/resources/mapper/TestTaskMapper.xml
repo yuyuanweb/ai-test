@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.yupi.template.mapper.TestTaskMapper">
+
+    <!-- 原子自增 completedSubtasks，并更新 status/startedAt/completedAt，避免多 Worker 并发竞态 -->
+    <!-- 注意：SET 顺序敏感。completedSubtasks 先自增，后续 CASE 用更新后的值；startedAt 依赖旧 status，必须先于 status 更新 -->
+    <update id="incrementCompletedSubtasks">
+        UPDATE test_task
+        SET completedSubtasks = completedSubtasks + 1,
+            updateTime = NOW(),
+            startedAt = CASE
+                WHEN status = 'pending' THEN NOW()
+                ELSE startedAt
+            END,
+            completedAt = CASE
+                WHEN completedSubtasks &gt;= totalSubtasks THEN NOW()
+                ELSE completedAt
+            END,
+            status = CASE
+                WHEN completedSubtasks &gt;= totalSubtasks THEN 'completed'
+                WHEN status = 'pending' THEN 'running'
+                ELSE status
+            END
+        WHERE id = #{taskId}
+          AND status NOT IN ('cancelled', 'failed')
+    </update>
+
+    <!-- 原子自增并标记任务失败（子任务执行异常时调用） -->
+    <update id="incrementCompletedSubtasksAndFail">
+        UPDATE test_task
+        SET completedSubtasks = completedSubtasks + 1,
+            updateTime = NOW(),
+            status = 'failed',
+            startedAt = CASE WHEN startedAt IS NULL THEN NOW() ELSE startedAt END
+        WHERE id = #{taskId}
+          AND status IN ('pending', 'running')
+    </update>
+</mapper>

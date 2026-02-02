@@ -3,20 +3,19 @@ package com.yupi.template.worker;
 import cn.hutool.json.JSONUtil;
 import com.yupi.template.constant.ConversationConstant;
 import com.yupi.template.constant.RabbitMQConstant;
-import com.yupi.template.mapper.ModelMapper;
+import com.yupi.template.guardrail.PromptGuardrail;
 import com.yupi.template.mapper.TestResultMapper;
 import com.yupi.template.mapper.TestTaskMapper;
 import com.yupi.template.model.dto.test.SubTaskMessage;
-import com.yupi.template.model.entity.Model;
 import com.yupi.template.model.entity.TestResult;
 import com.yupi.template.model.entity.TestTask;
 import com.yupi.template.model.dto.evaluation.AIScoreResult;
+import com.yupi.template.model.vo.ModelPricingVO;
 import com.yupi.template.service.AIScoringService;
 import com.yupi.template.service.BatchTestService;
 import com.yupi.template.service.ModelService;
 import com.yupi.template.service.ProgressNotificationService;
 import com.yupi.template.service.UserModelUsageService;
-import com.yupi.template.model.vo.TaskProgressVO;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -26,6 +25,7 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
+import io.micrometer.core.instrument.MeterRegistry;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -57,9 +57,6 @@ public class TestWorker {
     private TestTaskMapper testTaskMapper;
 
     @Resource
-    private ModelMapper modelMapper;
-
-    @Resource
     private BatchTestService batchTestService;
 
     @Resource
@@ -73,6 +70,9 @@ public class TestWorker {
 
     @Resource
     private AIScoringService aiScoringService;
+
+    @Resource
+    private MeterRegistry meterRegistry;
 
     @RabbitListener(queues = RabbitMQConstant.TEST_QUEUE)
     public void processSubTask(SubTaskMessage subTask) {
@@ -93,6 +93,8 @@ public class TestWorker {
                 log.warn("任务已取消或失败，跳过子任务: taskId={}, status={}", subTask.getTaskId(), task.getStatus());
                 return;
             }
+
+            PromptGuardrail.validate(subTask.getPromptContent());
 
             List<org.springframework.ai.chat.messages.Message> messages = new ArrayList<>();
             messages.add(new UserMessage(subTask.getPromptContent()));
@@ -257,13 +259,15 @@ public class TestWorker {
                 );
             }
 
-            int completedSubtasks = task.getCompletedSubtasks() + 1;
             batchTestService.updateTaskProgress(
-                    subTask.getTaskId(), 
-                    completedSubtasks,
+                    subTask.getTaskId(),
                     subTask.getModelName(),
                     subTask.getPromptTitle()
             );
+
+            String modelTag = subTask.getModelName() != null ? subTask.getModelName() : "unknown";
+            meterRegistry.timer("batch_test.subtask.duration", "model", modelTag)
+                    .record(responseTimeMs, java.util.concurrent.TimeUnit.MILLISECONDS);
 
             log.info("子任务完成: taskId={}, model={}, prompt={}, responseTime={}ms, tokens={}/{}, cost=${}, reasoningLength={}",
                     subTask.getTaskId(), subTask.getModelName(), subTask.getPromptTitle(),
@@ -271,59 +275,38 @@ public class TestWorker {
                     reasoningText != null ? reasoningText.length() : 0);
 
         } catch (Exception e) {
+            String modelTag = subTask.getModelName() != null ? subTask.getModelName() : "unknown";
+            meterRegistry.counter("batch_test.subtask.failures", "model", modelTag).increment();
+
             log.error("子任务执行失败: taskId={}, model={}, prompt={}", 
                     subTask.getTaskId(), subTask.getModelName(), subTask.getPromptTitle(), e);
 
             try {
-                TestTask task = testTaskMapper.selectOneById(subTask.getTaskId());
-                if (task != null) {
-                    // 即使失败，也要更新进度计数，确保进度准确
-                    int completedSubtasks = task.getCompletedSubtasks() + 1;
-                    batchTestService.updateTaskProgress(
-                            subTask.getTaskId(), 
-                            completedSubtasks,
-                            subTask.getModelName(),
-                            subTask.getPromptTitle()
-                    );
-                    
-                    // 如果任务状态是运行中，标记为失败
-                    if ("running".equals(task.getStatus())) {
-                        task.setStatus("failed");
-                        task.setUpdateTime(LocalDateTime.now());
-                        testTaskMapper.update(task);
-
-                        TaskProgressVO progress = TaskProgressVO.builder()
-                                .taskId(subTask.getTaskId())
-                                .status("failed")
-                                .timestamp(System.currentTimeMillis())
-                                .build();
-                        progressNotificationService.sendProgress(subTask.getTaskId(), progress);
-                    }
-                }
+                batchTestService.markTaskFailed(subTask.getTaskId());
             } catch (Exception ex) {
-                log.error("更新任务状态失败: taskId={}", subTask.getTaskId(), ex);
+                log.error("标记任务失败异常: taskId={}", subTask.getTaskId(), ex);
             }
         }
     }
 
     /**
-     * 计算成本
+     * 计算成本（使用 ModelService.getModelPricing，带 Redis 缓存）
      */
     private BigDecimal calculateCost(String modelName, int inputTokens, int outputTokens) {
-        Model model = modelMapper.selectOneById(modelName);
-        if (model == null) {
+        ModelPricingVO pricing = modelService.getModelPricing(modelName);
+        if (pricing == null) {
             log.warn("模型不存在，使用默认价格: modelName={}", modelName);
-            double defaultCost = (inputTokens * ConversationConstant.DEFAULT_INPUT_PRICE_PER_MILLION +
-                    outputTokens * ConversationConstant.DEFAULT_OUTPUT_PRICE_PER_MILLION) /
-                    ConversationConstant.TOKENS_PER_MILLION;
+            double defaultCost = (inputTokens * ConversationConstant.DEFAULT_INPUT_PRICE_PER_MILLION
+                    + outputTokens * ConversationConstant.DEFAULT_OUTPUT_PRICE_PER_MILLION)
+                    / ConversationConstant.TOKENS_PER_MILLION;
             return BigDecimal.valueOf(defaultCost);
         }
 
-        BigDecimal inputPrice = model.getInputPrice() != null 
-                ? model.getInputPrice() 
+        BigDecimal inputPrice = pricing.getInputPrice() != null
+                ? pricing.getInputPrice()
                 : BigDecimal.valueOf(ConversationConstant.DEFAULT_INPUT_PRICE_PER_MILLION);
-        BigDecimal outputPrice = model.getOutputPrice() != null 
-                ? model.getOutputPrice() 
+        BigDecimal outputPrice = pricing.getOutputPrice() != null
+                ? pricing.getOutputPrice()
                 : BigDecimal.valueOf(ConversationConstant.DEFAULT_OUTPUT_PRICE_PER_MILLION);
 
         BigDecimal inputCost = inputPrice

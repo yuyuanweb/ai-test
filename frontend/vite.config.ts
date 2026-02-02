@@ -36,10 +36,26 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          'monaco-editor': ['monaco-editor'],
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('monaco-editor')) {
+              return 'monaco-editor'
+            }
+            if (id.includes('echarts')) {
+              return 'echarts'
+            }
+            if (
+              id.includes('vue') ||
+              id.includes('vue-router') ||
+              id.includes('pinia') ||
+              id.includes('ant-design-vue')
+            ) {
+              return 'vue-vendor'
+            }
+          }
         },
       },
     },
+    chunkSizeWarningLimit: 800,
   },
 })

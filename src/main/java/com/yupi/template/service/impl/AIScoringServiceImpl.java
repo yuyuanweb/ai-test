@@ -9,6 +9,7 @@ import com.yupi.template.model.dto.evaluation.EvaluationResult;
 import com.yupi.template.model.dto.evaluation.JudgeScore;
 import com.yupi.template.model.entity.Model;
 import com.yupi.template.service.AIScoringService;
+import com.yupi.template.utils.AiRetryHelper;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -87,14 +88,16 @@ public class AIScoringServiceImpl implements AIScoringService {
             log.info("开始AI评分: questionLength={}, responseLength={}", 
                     question.length(), modelResponse.length());
 
-            EvaluationResult result = chatClient.prompt()
-                    .user(scoringPrompt)
-                    .options(OpenAiChatOptions.builder()
-                            .model(JUDGE_MODEL)
-                            .temperature(0.3)
-                            .build())
-                    .call()
-                    .entity(EvaluationResult.class);
+            EvaluationResult result = AiRetryHelper.runWithRetry(() ->
+                    chatClient.prompt()
+                            .user(scoringPrompt)
+                            .options(OpenAiChatOptions.builder()
+                                    .model(JUDGE_MODEL)
+                                    .temperature(0.3)
+                                    .build())
+                            .call()
+                            .entity(EvaluationResult.class)
+            );
 
             log.info("AI评分完成: totalScore={}, rating={}", 
                     result.totalScore(), result.rating());
@@ -102,7 +105,8 @@ public class AIScoringServiceImpl implements AIScoringService {
             return result;
         } catch (Exception e) {
             log.error("AI评分失败: question={}, error={}", question, e.getMessage(), e);
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "AI评分失败: " + e.getMessage());
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+                    "AI评分失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
         }
     }
 
@@ -144,14 +148,16 @@ public class AIScoringServiceImpl implements AIScoringService {
             List<CompletableFuture<JudgeScore>> futures = judgeModels.stream()
                     .map(judgeModel -> CompletableFuture.supplyAsync(() -> {
                         try {
-                            EvaluationResult result = chatClient.prompt()
-                                    .user(scoringPrompt)
-                                    .options(OpenAiChatOptions.builder()
-                                            .model(judgeModel)
-                                            .temperature(0.3)
-                                            .build())
-                                    .call()
-                                    .entity(EvaluationResult.class);
+                            EvaluationResult result = AiRetryHelper.runWithRetry(() ->
+                                    chatClient.prompt()
+                                            .user(scoringPrompt)
+                                            .options(OpenAiChatOptions.builder()
+                                                    .model(judgeModel)
+                                                    .temperature(0.3)
+                                                    .build())
+                                            .call()
+                                            .entity(EvaluationResult.class)
+                            );
 
                             log.info("评委{}评分完成: totalScore={}, rating={}",
                                     judgeModel, result.totalScore(), result.rating());

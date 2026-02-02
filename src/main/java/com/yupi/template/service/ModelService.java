@@ -2,6 +2,7 @@ package com.yupi.template.service;
 
 import com.mybatisflex.core.paginate.Page;
 import com.yupi.template.model.dto.model.ModelQueryRequest;
+import com.yupi.template.model.vo.ModelPricingVO;
 import com.yupi.template.model.vo.ModelVO;
 
 import java.math.BigDecimal;
@@ -30,6 +31,22 @@ public interface ModelService {
      * @return 模型列表
      */
     List<ModelVO> getAllModels(Long userId);
+
+    /**
+     * 获取模型价格（带 Redis 缓存，Key: model:pricing:{modelName}，24h 过期）
+     * 用于成本计算，避免重复查库。
+     *
+     * @param modelName 模型名称（OpenRouter ID）
+     * @return 价格信息，不存在时返回 null
+     */
+    ModelPricingVO getModelPricing(String modelName);
+
+    /**
+     * 清除模型价格缓存（如同步 OpenRouter 后需使旧缓存失效）
+     *
+     * @param modelName 模型名称
+     */
+    void evictModelPricingCache(String modelName);
 
     /**
      * 更新模型使用统计
