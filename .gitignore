@@ -42,6 +42,9 @@ frontend/.env.*.local
 *.temp
 *.swp
 
+# Prometheus 本地数据
+monitoring/data/
+
 # Project specific
 参考文档/
 工具/

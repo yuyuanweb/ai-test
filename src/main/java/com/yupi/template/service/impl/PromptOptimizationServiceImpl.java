@@ -5,6 +5,7 @@ import com.yupi.template.exception.ErrorCode;
 import com.yupi.template.model.dto.prompt.OptimizationSuggestion;
 import com.yupi.template.model.vo.PromptOptimizationVO;
 import com.yupi.template.service.PromptOptimizationService;
+import com.yupi.template.utils.AiRetryHelper;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -80,14 +81,16 @@ public class PromptOptimizationServiceImpl implements PromptOptimizationService 
             log.info("开始提示词优化分析: promptLength={}, hasResponse={}, model={}",
                     originalPrompt.length(), aiResponse != null && !aiResponse.trim().isEmpty(), model);
 
-            OptimizationSuggestion suggestion = chatClient.prompt()
-                    .user(analysisPrompt)
-                    .options(OpenAiChatOptions.builder()
-                            .model(model)
-                            .temperature(0.3)
-                            .build())
-                    .call()
-                    .entity(OptimizationSuggestion.class);
+            OptimizationSuggestion suggestion = AiRetryHelper.runWithRetry(() ->
+                    chatClient.prompt()
+                            .user(analysisPrompt)
+                            .options(OpenAiChatOptions.builder()
+                                    .model(model)
+                                    .temperature(0.3)
+                                    .build())
+                            .call()
+                            .entity(OptimizationSuggestion.class)
+            );
 
             log.info("提示词优化分析完成: issuesCount={}, improvementsCount={}",
                     suggestion.issues() != null ? suggestion.issues().size() : 0,
@@ -101,7 +104,8 @@ public class PromptOptimizationServiceImpl implements PromptOptimizationService 
             return vo;
         } catch (Exception e) {
             log.error("提示词优化分析失败: prompt={}, error={}", originalPrompt, e.getMessage(), e);
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "提示词优化分析失败: " + e.getMessage());
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR,
+                    "提示词优化分析失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
         }
     }
 }

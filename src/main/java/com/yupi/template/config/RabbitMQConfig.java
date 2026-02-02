@@ -5,6 +5,9 @@ import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
+
+import java.util.HashMap;
+import java.util.Map;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -22,11 +25,15 @@ import org.springframework.context.annotation.Configuration;
 public class RabbitMQConfig {
 
     /**
-     * 测试任务队列
+     * 测试任务队列（优先级队列 + 最大长度，消息持久化）。
+     * 若已存在同名队列且未配置 x-max-priority/x-max-length，需先删除该队列再启动。
      */
     @Bean
     public Queue testQueue() {
-        return new Queue(RabbitMQConstant.TEST_QUEUE, true);
+        Map<String, Object> args = new HashMap<>();
+        args.put("x-max-priority", RabbitMQConstant.QUEUE_MAX_PRIORITY);
+        args.put("x-max-length", RabbitMQConstant.QUEUE_MAX_LENGTH);
+        return new Queue(RabbitMQConstant.TEST_QUEUE, true, false, false, args);
     }
 
     /**
@@ -67,16 +74,17 @@ public class RabbitMQConfig {
     }
 
     /**
-     * 监听器容器工厂配置
+     * 监听器容器工厂配置（Worker 并发优化）
+     * prefetch=5 每消费者预取数；4~7 个并发消费者
      */
     @Bean
     public SimpleRabbitListenerContainerFactory rabbitListenerContainerFactory(ConnectionFactory connectionFactory) {
         SimpleRabbitListenerContainerFactory factory = new SimpleRabbitListenerContainerFactory();
         factory.setConnectionFactory(connectionFactory);
         factory.setMessageConverter(messageConverter());
-        factory.setPrefetchCount(1);
-        factory.setConcurrentConsumers(1);
-        factory.setMaxConcurrentConsumers(5);
+        factory.setPrefetchCount(5);
+        factory.setConcurrentConsumers(4);
+        factory.setMaxConcurrentConsumers(7);
         return factory;
     }
 }

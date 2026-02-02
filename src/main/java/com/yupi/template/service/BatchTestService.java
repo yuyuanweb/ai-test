@@ -61,14 +61,20 @@ public interface BatchTestService {
     List<TestResult> getTaskResults(String taskId, Long userId);
 
     /**
-     * 更新任务进度
+     * 更新任务进度（原子自增 completedSubtasks，多 Worker 并发安全）
      *
      * @param taskId 任务ID
-     * @param completedSubtasks 已完成子任务数
-     * @param currentModel 当前测试的模型名称（可选）
-     * @param currentPrompt 当前测试的提示词标题（可选）
+     * @param currentModel 当前完成子任务的模型名称（可选）
+     * @param currentPrompt 当前完成子任务的提示词标题（可选）
      */
-    void updateTaskProgress(String taskId, int completedSubtasks, String currentModel, String currentPrompt);
+    void updateTaskProgress(String taskId, String currentModel, String currentPrompt);
+
+    /**
+     * 标记任务失败并原子自增 completedSubtasks（子任务执行异常时调用）
+     *
+     * @param taskId 任务ID
+     */
+    void markTaskFailed(String taskId);
 
     /**
      * 更新测试结果评分

@@ -8,6 +8,7 @@ import com.yupi.template.constant.ConversationConstant;
 import com.yupi.template.exception.BusinessException;
 import com.yupi.template.exception.ErrorCode;
 import com.yupi.template.exception.ThrowUtils;
+import com.yupi.template.guardrail.PromptGuardrail;
 import com.yupi.template.mapper.ConversationMapper;
 import com.yupi.template.mapper.ConversationMessageMapper;
 import com.yupi.template.mapper.ModelMapper;
@@ -130,6 +131,7 @@ public class ConversationServiceImpl implements ConversationService {
                 ErrorCode.PARAMS_ERROR, "模型名称不能为空");
         ThrowUtils.throwIf(request.getMessage() == null || request.getMessage().isEmpty(),
                 ErrorCode.PARAMS_ERROR, "消息内容不能为空");
+        PromptGuardrail.validate(request.getMessage());
 
         // 2. 创建或获取对话记录
         String conversationId = createOrGetConversation(
@@ -159,6 +161,7 @@ public class ConversationServiceImpl implements ConversationService {
     public Flux<ServerSentEvent<StreamChunkVO>> sideBySideStream(SideBySideRequest request, Long userId) {
         // 1. 参数校验
         validateSideBySideRequest(request);
+        PromptGuardrail.validate(request.getPrompt());
 
         // 2. 创建或获取对话记录
         String conversationId = createOrGetConversation(
@@ -205,6 +208,9 @@ public class ConversationServiceImpl implements ConversationService {
     public Flux<ServerSentEvent<StreamChunkVO>> promptLabStream(PromptLabRequest request, Long userId) {
         // 1. 参数校验
         validatePromptLabRequest(request);
+        for (String v : request.getPromptVariants()) {
+            PromptGuardrail.validate(v);
+        }
 
         // 2. 创建或获取对话记录
         String conversationId = createOrGetConversation(
@@ -242,6 +248,7 @@ public class ConversationServiceImpl implements ConversationService {
     public Flux<ServerSentEvent<StreamChunkVO>> codeModeStream(CodeModeRequest request, Long userId) {
         // 1. 参数校验
         validateCodeModeRequest(request);
+        PromptGuardrail.validate(request.getPrompt());
 
         // 2. 创建或获取对话记录（使用codePreviewEnabled=true，conversationType为side_by_side）
         String conversationId = createOrGetConversation(
@@ -282,6 +289,9 @@ public class ConversationServiceImpl implements ConversationService {
     public Flux<ServerSentEvent<StreamChunkVO>> codeModePromptLabStream(CodeModePromptLabRequest request, Long userId) {
         // 1. 参数校验
         validateCodeModePromptLabRequest(request);
+        for (String v : request.getPromptVariants()) {
+            PromptGuardrail.validate(v);
+        }
 
         // 2. 创建或获取对话记录（使用codePreviewEnabled=true，conversationType为prompt_lab）
         String conversationId = createOrGetConversation(

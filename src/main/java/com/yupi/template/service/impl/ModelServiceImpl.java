@@ -4,17 +4,23 @@ import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONUtil;
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
+import com.yupi.template.constant.CacheConstant;
+import com.yupi.template.constant.ConversationConstant;
 import com.yupi.template.mapper.ModelMapper;
 import com.yupi.template.model.dto.model.ModelQueryRequest;
 import com.yupi.template.model.entity.Model;
 import com.yupi.template.model.entity.UserModelUsage;
+import com.yupi.template.model.vo.ModelPricingVO;
 import com.yupi.template.model.vo.ModelVO;
 import com.yupi.template.service.ModelService;
 import com.yupi.template.service.UserModelUsageService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -32,6 +38,9 @@ public class ModelServiceImpl implements ModelService {
 
     @Resource
     private UserModelUsageService userModelUsageService;
+
+    @Resource
+    private CacheManager cacheManager;
 
     /**
      * 分页查询模型列表（支持搜索）
@@ -101,6 +110,44 @@ public class ModelServiceImpl implements ModelService {
         return models.stream()
                 .map(model -> convertToModelVO(model, userId))
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Cacheable(
+            cacheNames = CacheConstant.MODEL_PRICING_CACHE_NAME,
+            key = "'" + CacheConstant.MODEL_PRICING_KEY_PREFIX + "' + #modelName",
+            unless = "#result == null"
+    )
+    public ModelPricingVO getModelPricing(String modelName) {
+        if (StrUtil.isBlank(modelName)) {
+            return null;
+        }
+        Model model = modelMapper.selectOneById(modelName);
+        if (model == null) {
+            return null;
+        }
+        BigDecimal inputPrice = model.getInputPrice() != null
+                ? model.getInputPrice()
+                : BigDecimal.valueOf(ConversationConstant.DEFAULT_INPUT_PRICE_PER_MILLION);
+        BigDecimal outputPrice = model.getOutputPrice() != null
+                ? model.getOutputPrice()
+                : BigDecimal.valueOf(ConversationConstant.DEFAULT_OUTPUT_PRICE_PER_MILLION);
+        return ModelPricingVO.builder()
+                .inputPrice(inputPrice)
+                .outputPrice(outputPrice)
+                .build();
+    }
+
+    @Override
+    public void evictModelPricingCache(String modelName) {
+        if (StrUtil.isBlank(modelName)) {
+            return;
+        }
+        var cache = cacheManager.getCache(CacheConstant.MODEL_PRICING_CACHE_NAME);
+        if (cache != null) {
+            cache.evict(CacheConstant.MODEL_PRICING_KEY_PREFIX + modelName);
+            log.debug("已清除模型价格缓存: modelName={}", modelName);
+        }
     }
 
     /**

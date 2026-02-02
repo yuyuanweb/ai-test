@@ -1,6 +1,6 @@
 /**
  * SSE客户端工具类
- * 用于处理POST请求的流式响应
+ * 用于处理POST请求的流式响应；支持 business-error 事件（限流等业务错误）
  *
  * @author <a href="https://codefather.cn">编程导航学习圈</a>
  */
@@ -9,6 +9,8 @@ export interface SSEOptions {
   onMessage: (data: any) => void
   onError?: (error: Error) => void
   onComplete?: () => void
+  /** 限流等业务错误（后端 event: business-error），收到后应停止 loading、关闭连接 */
+  onBusinessError?: (data: { error: boolean; code: number; message: string }) => void
 }
 
 /**
@@ -22,6 +24,7 @@ export async function createPostSSE(url: string, body: any, options: SSEOptions)
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
       },
       credentials: 'include',
       body: JSON.stringify(body),
@@ -64,23 +67,33 @@ export async function createPostSSE(url: string, body: any, options: SSEOptions)
 
           for (const part of parts) {
             if (!part.trim()) continue
-            
-            // 查找data:行
+
             const lines = part.split('\n')
+            let eventType = ''
             for (const line of lines) {
               const trimmed = line.trim()
+              if (trimmed.startsWith('event:')) {
+                eventType = trimmed.slice(6).trim()
+                continue
+              }
               if (trimmed.startsWith('data:')) {
-                const jsonStr = trimmed.substring(5).trim()
-                if (jsonStr) {
-                  try {
-                    const data = JSON.parse(jsonStr)
-                    const timestamp = new Date().toISOString().split('T')[1].substring(0, 12)
-                    console.log(`[${timestamp}] ✅ 收到SSE:`, data.modelName, 'content长度:', data.fullContent?.length || 0, 'done:', data.done)
-                    options.onMessage(data)
-                  } catch (e) {
-                    console.warn('⚠️ JSON解析失败，等待更多数据')
+                const jsonStr = trimmed.slice(5).trim()
+                if (!jsonStr) continue
+                try {
+                  const data = JSON.parse(jsonStr)
+                  if (eventType === 'business-error') {
+                    console.warn('SSE business-error:', data)
+                    options.onBusinessError?.(data as { error: boolean; code: number; message: string })
+                    reader.cancel()
+                    return
                   }
+                  const timestamp = new Date().toISOString().split('T')[1].substring(0, 12)
+                  console.log(`[${timestamp}] ✅ 收到SSE:`, data.modelName, 'content长度:', data.fullContent?.length || 0, 'done:', data.done)
+                  options.onMessage(data)
+                } catch (e) {
+                  if (eventType !== 'business-error') console.warn('⚠️ JSON解析失败，等待更多数据')
                 }
+                eventType = ''
               }
             }
           }

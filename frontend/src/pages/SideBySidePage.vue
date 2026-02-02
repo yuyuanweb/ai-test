@@ -705,6 +705,11 @@ const sendMessage = async () => {
           isNewConversation.value = false
           message.error('请求失败: ' + err.message)
         },
+        onBusinessError: (data) => {
+          isLoading.value = false
+          isNewConversation.value = false
+          message.error(data.message || '请求过于频繁，请稍后再试')
+        },
         onComplete: () => {
           console.log('🏁 SSE连接完成')
           isLoading.value = false

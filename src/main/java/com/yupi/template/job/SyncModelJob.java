@@ -1,9 +1,11 @@
 package com.yupi.template.job;
 
 import cn.hutool.json.JSONUtil;
+import com.yupi.template.constant.ConversationConstant;
 import com.yupi.template.mapper.ModelMapper;
 import com.yupi.template.model.dto.openrouter.OpenRouterModelResponse;
 import com.yupi.template.model.entity.Model;
+import com.yupi.template.service.ModelService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,7 +19,8 @@ import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * 同步OpenRouter模型列表定时任务
@@ -31,49 +34,14 @@ public class SyncModelJob {
     @Resource
     private ModelMapper modelMapper;
 
+    @Resource
+    private ModelService modelService;
+
     @Value("${spring.ai.openai.api-key}")
     private String openRouterApiKey;
 
     private static final String OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
 
-    /**
-     * 推荐模型ID集合（优先国产模型）
-     */
-    private static final Set<String> RECOMMENDED_MODEL_IDS = new HashSet<>(Arrays.asList(
-            // 阿里巴巴通义千问（Alibaba Qwen）- 最优先
-            "qwen/qwen-max",
-            "qwen/qwen-plus",
-            "qwen/qwen3-max",
-            "qwen/qwen3-coder",
-            // DeepSeek - 最优先
-            "deepseek/deepseek-chat",
-            "deepseek/deepseek-r1",
-            "deepseek/deepseek-v3.2",
-            // 智谱AI（Zhipu GLM）
-            "z-ai/glm-4.6",
-            "z-ai/glm-4.5",
-            // 月之暗面（Moonshotai Kimi）
-            "moonshotai/kimi-k2",
-            "moonshotai/kimi-k2-0905",
-            // 百度文心（Baidu ERNIE）
-            "baidu/ernie-4.5-300b-a47b",
-            "baidu/ernie-4.5-21b-a3b",
-            // 腾讯混元（Tencent Hunyuan）
-            "tencent/hunyuan-a13b-instruct",
-            // 字节跳动（Bytedance）
-            "bytedance-seed/seed-1.6-flash",
-            // 美团（Meituan）
-            "meituan/longcat-flash-chat",
-            // OpenAI系列（国外）
-            "openai/gpt-4o",
-            "openai/gpt-4o-mini",
-            // Anthropic Claude系列（国外）
-            "anthropic/claude-3.5-sonnet",
-            "anthropic/claude-3-haiku",
-            // Google Gemini系列（国外）
-            "google/gemini-1.5-pro",
-            "google/gemini-1.5-flash"
-    ));
 
     /**
      * 每天凌晨2点执行一次
@@ -82,11 +50,11 @@ public class SyncModelJob {
     @Scheduled(cron = "0 0 2 * * ?")
     public void syncModels() {
         log.info("开始同步OpenRouter模型列表");
-        
+
         try {
             // 调用OpenRouter API获取模型列表
             List<OpenRouterModelResponse.OpenRouterModel> openRouterModels = fetchModelsFromOpenRouter();
-            
+
             if (openRouterModels == null || openRouterModels.isEmpty()) {
                 log.warn("未获取到任何模型数据");
                 return;
@@ -101,7 +69,7 @@ public class SyncModelJob {
             for (OpenRouterModelResponse.OpenRouterModel openRouterModel : openRouterModels) {
                 try {
                     Model model = convertToModel(openRouterModel);
-                    
+
                     // 使用replace方式：存在则更新，不存在则插入
                     Model existingModel = modelMapper.selectOneById(model.getId());
                     if (existingModel != null) {
@@ -110,7 +78,8 @@ public class SyncModelJob {
                     } else {
                         modelMapper.insert(model);
                     }
-                    
+                    modelService.evictModelPricingCache(model.getId());
+
                     successCount++;
                 } catch (Exception e) {
                     log.error("保存模型失败: {}", openRouterModel.getId(), e);
@@ -150,7 +119,7 @@ public class SyncModelJob {
         } catch (Exception e) {
             log.error("调用OpenRouter API失败", e);
         }
-        
+
         return null;
     }
 
@@ -165,8 +134,6 @@ public class SyncModelJob {
         BigDecimal inputPrice = convertPrice(openRouterModel.getPricing().getPrompt());
         BigDecimal outputPrice = convertPrice(openRouterModel.getPricing().getCompletion());
 
-        // 判断是否推荐
-        int recommended = RECOMMENDED_MODEL_IDS.contains(openRouterModel.getId()) ? 1 : 0;
 
         // 生成标签
         String[] tags = generateTags(openRouterModel);
@@ -184,7 +151,7 @@ public class SyncModelJob {
                 .contextLength(openRouterModel.getContextLength())
                 .inputPrice(inputPrice)
                 .outputPrice(outputPrice)
-                .recommended(recommended)
+                .recommended(0)
                 .tags(tagsJson)
                 .rawData(rawData)
                 .createTime(now)
@@ -241,7 +208,7 @@ public class SyncModelJob {
             }
             // OpenRouter返回的价格是每token的美元价格（科学计数法字符串）
             BigDecimal pricePerToken = new BigDecimal(priceStr);
-            return pricePerToken.multiply(new BigDecimal("1000000"));
+            return pricePerToken.multiply(new BigDecimal(ConversationConstant.TOKENS_PER_MILLION));
         } catch (Exception e) {
             log.warn("价格转换失败: {}", priceStr, e);
             return BigDecimal.ZERO;

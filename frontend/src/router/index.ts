@@ -1,19 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import ArenaLayout from '@/layouts/ArenaLayout.vue'
-import UserLoginPage from '@/pages/user/UserLoginPage.vue'
-import UserRegisterPage from '@/pages/user/UserRegisterPage.vue'
-import UserManagePage from '@/pages/admin/UserManagePage.vue'
-import ChatPage from '@/pages/ChatPage.vue'
-import SideBySidePage from '@/pages/SideBySidePage.vue'
-import PromptLabPage from '@/pages/PromptLabPage.vue'
-import CodeModePage from '@/pages/CodeModePage.vue'
-import BatchTestPage from '@/pages/BatchTestPage.vue'
-import TaskListPage from '@/pages/TaskListPage.vue'
-import TaskDetailPage from '@/pages/TaskDetailPage.vue'
-import TaskReportPage from '@/pages/TaskReportPage.vue'
-import TaskComparePage from '@/pages/TaskComparePage.vue'
-import ModelManagePage from '@/pages/admin/ModelManagePage.vue'
-import SceneManagePage from '@/pages/admin/SceneManagePage.vue'
+const ArenaLayout = () =>
+  import(/* webpackChunkName: "layout-arena" */ '@/layouts/ArenaLayout.vue')
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -29,12 +16,18 @@ const router = createRouter({
         {
           path: 'side-by-side',
           name: 'Side-by-Side对比',
-          component: SideBySidePage,
+          component: () =>
+            import(
+              /* webpackChunkName: "page-side-by-side" */ '@/pages/SideBySidePage.vue'
+            ),
         },
         {
           path: 'prompt-lab',
           name: 'Prompt Lab',
-          component: PromptLabPage,
+          component: () =>
+            import(
+              /* webpackChunkName: "page-prompt-lab" */ '@/pages/PromptLabPage.vue'
+            ),
         },
       ],
     },
@@ -45,7 +38,10 @@ const router = createRouter({
         {
           path: 'manage',
           name: '模型管理',
-          component: ModelManagePage,
+          component: () =>
+            import(
+              /* webpackChunkName: "page-admin-model" */ '@/pages/admin/ModelManagePage.vue'
+            ),
         },
       ],
     },
@@ -56,7 +52,10 @@ const router = createRouter({
         {
           path: 'manage',
           name: '场景管理',
-          component: SceneManagePage,
+          component: () =>
+            import(
+              /* webpackChunkName: "page-admin-scene" */ '@/pages/admin/SceneManagePage.vue'
+            ),
         },
       ],
     },
@@ -67,54 +66,82 @@ const router = createRouter({
         {
           path: 'create',
           name: '创建批量测试',
-          component: BatchTestPage,
+          component: () =>
+            import(
+              /* webpackChunkName: "page-batch-create" */ '@/pages/BatchTestPage.vue'
+            ),
         },
         {
           path: 'list',
           name: '任务列表',
-          component: TaskListPage,
+          component: () =>
+            import(
+              /* webpackChunkName: "page-batch-list" */ '@/pages/TaskListPage.vue'
+            ),
         },
         {
           path: 'detail/:id',
           name: '任务详情',
-          component: TaskDetailPage,
+          component: () =>
+            import(
+              /* webpackChunkName: "page-batch-detail" */ '@/pages/TaskDetailPage.vue'
+            ),
         },
         {
           path: 'report/:id',
           name: '测试报告',
-          component: TaskReportPage,
+          component: () =>
+            import(
+              /* webpackChunkName: "page-batch-report" */ '@/pages/TaskReportPage.vue'
+            ),
         },
         {
           path: 'compare',
           name: '任务对比',
-          component: TaskComparePage,
+          component: () =>
+            import(
+              /* webpackChunkName: "page-batch-compare" */ '@/pages/TaskComparePage.vue'
+            ),
         },
       ],
     },
     {
       path: '/chat',
       name: 'Chat',
-      component: ChatPage,
+      component: () =>
+        import(/* webpackChunkName: "page-chat" */ '@/pages/ChatPage.vue'),
     },
     {
       path: '/code-mode',
       name: '代码模式',
-      component: CodeModePage,
+      component: () =>
+        import(
+          /* webpackChunkName: "page-code-mode" */ '@/pages/CodeModePage.vue'
+        ),
     },
     {
       path: '/user/login',
       name: '用户登录',
-      component: UserLoginPage,
+      component: () =>
+        import(
+          /* webpackChunkName: "page-user-login" */ '@/pages/user/UserLoginPage.vue'
+        ),
     },
     {
       path: '/user/register',
       name: '用户注册',
-      component: UserRegisterPage,
+      component: () =>
+        import(
+          /* webpackChunkName: "page-user-register" */ '@/pages/user/UserRegisterPage.vue'
+        ),
     },
     {
       path: '/admin/user',
       name: '用户管理',
-      component: UserManagePage,
+      component: () =>
+        import(
+          /* webpackChunkName: "page-admin-user" */ '@/pages/admin/UserManagePage.vue'
+        ),
     },
   ],
 })

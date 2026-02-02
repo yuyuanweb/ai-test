@@ -16,6 +16,8 @@ import com.yupi.template.model.entity.Conversation;
 import com.yupi.template.model.entity.ConversationMessage;
 import com.yupi.template.model.entity.User;
 import com.yupi.template.model.vo.StreamChunkVO;
+import com.yupi.template.ratelimit.RateLimit;
+import com.yupi.template.ratelimit.RateLimitType;
 import com.yupi.template.service.ConversationService;
 import com.yupi.template.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -64,6 +66,7 @@ public class ConversationController {
     /**
      * 基础对话（流式响应）
      */
+    @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60, message = "AI 对话请求过于频繁，请稍后再试")
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "基础对话(流式)")
     public Flux<ServerSentEvent<StreamChunkVO>> chatStream(
@@ -79,6 +82,7 @@ public class ConversationController {
     /**
      * Side-by-Side 多模型并排对比（流式响应）
      */
+    @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60, message = "AI 对话请求过于频繁，请稍后再试")
     @PostMapping(value = "/side-by-side/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "Side-by-Side多模型并排对比(流式)")
     public Flux<ServerSentEvent<StreamChunkVO>> sideBySideStream(
@@ -94,6 +98,7 @@ public class ConversationController {
     /**
      * Prompt Lab 单模型多提示词对比 (流式响应)
      */
+    @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60, message = "AI 对话请求过于频繁，请稍后再试")
     @PostMapping(value = "/prompt-lab/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "Prompt Lab单模型多提示词对比(流式)")
     public Flux<ServerSentEvent<StreamChunkVO>> promptLabStream(
@@ -109,6 +114,7 @@ public class ConversationController {
     /**
      * Code Mode 代码模式 (流式响应)
      */
+    @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60, message = "AI 对话请求过于频繁，请稍后再试")
     @PostMapping(value = "/code-mode/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "代码模式(流式)")
     public Flux<ServerSentEvent<StreamChunkVO>> codeModeStream(
@@ -124,6 +130,7 @@ public class ConversationController {
     /**
      * Code Mode 提示词实验 (流式响应) - 代码模式下的多提示词对比
      */
+    @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60, message = "AI 对话请求过于频繁，请稍后再试")
     @PostMapping(value = "/code-mode/prompt-lab/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     @Operation(summary = "代码模式提示词实验(流式)")
     public Flux<ServerSentEvent<StreamChunkVO>> codeModePromptLabStream(
