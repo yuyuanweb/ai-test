@@ -142,6 +142,12 @@ public class StreamChunkVO implements Serializable {
     @Schema(description = "是否包含代码块")
     private Boolean hasCodeBlocks;
 
+    /**
+     * 工具调用信息（JSON字符串，含联网搜索关键词/来源等）
+     */
+    @Schema(description = "工具调用信息（JSON字符串）")
+    private String toolsUsed;
+
     private static final long serialVersionUID = 1L;
 }
 

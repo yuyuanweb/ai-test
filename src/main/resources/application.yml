@@ -3,6 +3,11 @@ spring:
     name: springboot-init
   profiles:
     active: local
+  # 文件上传配置
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 50MB
   # session 配置
   session:
     store-type: redis
@@ -86,3 +91,10 @@ logging:
   level:
     com.yupi.template.mapper: debug
     org.springframework.ai: debug
+
+tencent:
+  cos:
+    accessKey: AKIDulEamqmiXFl493oNjv0tZ3VrIbiT1MTN
+    secretKey: kLk0403u692jDUaUCj5EAsNkxgDZjfQG
+    region: ap-guangzhou
+    bucket: yupi-1300582479

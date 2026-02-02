@@ -2,6 +2,7 @@ package com.yupi.template.service;
 
 import com.mybatisflex.core.paginate.Page;
 import com.yupi.template.model.dto.model.ModelQueryRequest;
+import com.yupi.template.model.entity.Model;
 import com.yupi.template.model.vo.ModelPricingVO;
 import com.yupi.template.model.vo.ModelVO;
 
@@ -56,5 +57,13 @@ public interface ModelService {
      * @param cost 本次花费（美元）
      */
     void updateModelUsage(String modelName, int tokens, BigDecimal cost);
+
+    /**
+     * 根据模型 ID 查询模型信息
+     *
+     * @param modelId 模型 ID（OpenRouter 模型 ID）
+     * @return 模型信息，未找到时返回 null
+     */
+    Model getModelById(String modelId);
 }
 

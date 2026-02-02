@@ -76,6 +76,24 @@ public class ModelVO implements Serializable {
     private Boolean isChina;
 
     /**
+     * 是否支持多模态(图片)
+     */
+    @Schema(description = "是否支持多模态(图片)", example = "true")
+    private Boolean supportsMultimodal;
+
+    /**
+     * 是否支持图片生成
+     */
+    @Schema(description = "是否支持图片生成", example = "true")
+    private Boolean supportsImageGen;
+
+    /**
+     * 是否支持工具/函数调用（用于开启联网搜索等）
+     */
+    @Schema(description = "是否支持工具/函数调用", example = "true")
+    private Boolean supportsToolCalling;
+
+    /**
      * 标签 (如: 代码, 文本生成, 多模态等)
      */
     @Schema(description = "能力标签", example = "[\"代码\", \"文本生成\"]")

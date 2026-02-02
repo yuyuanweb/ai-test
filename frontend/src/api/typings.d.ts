@@ -95,11 +95,19 @@ declare namespace API {
     message?: string
   }
 
+  type BaseResponseListGeneratedImageVO = {
+    code?: number
+    data?: GeneratedImageVO[]
+    message?: string
+  }
+
   type CodeModeRequest = {
     /** 模型列表（1-8个） */
     models?: string[]
     /** 用户需求描述 */
     prompt?: string
+    /** 图片URL列表（可选，用于多模态） */
+    imageUrls?: string[]
     /** 对话ID，多轮对话时传入 */
     conversationId?: string
     /** 是否使用流式响应 */
@@ -129,12 +137,16 @@ declare namespace API {
     messageIndex?: number
     role?: string
     modelName?: string
+    /** 图片URL列表（JSON字符串） */
+    images?: string
     content?: string
     responseTimeMs?: number
     inputTokens?: number
     outputTokens?: number
     cost?: number
     reasoning?: string
+    /** 工具使用信息（JSON字符串） */
+    toolsUsed?: string
     createTime?: string
     updateTime?: string
     isDelete?: number
@@ -213,6 +225,10 @@ declare namespace API {
     onlyRecommended?: boolean
     /** 是否只查询国内模型 */
     onlyChina?: boolean
+    /** 是否只查询支持图片生成的模型 */
+    onlySupportsImageGen?: boolean
+    /** 是否只查询支持多模态的模型 */
+    onlySupportsMultimodal?: boolean
   }
 
   type ModelVO = {
@@ -234,6 +250,12 @@ declare namespace API {
     recommended?: boolean
     /** 是否国内模型 */
     isChina?: boolean
+    /** 是否支持多模态(图片) */
+    supportsMultimodal?: boolean
+    /** 是否支持图片生成 */
+    supportsImageGen?: boolean
+    /** 是否支持工具调用(联网搜索) */
+    supportsToolCalling?: boolean
     /** 能力标签 */
     tags?: string[]
     /** 累计使用Token数 */
@@ -290,6 +312,8 @@ declare namespace API {
     model?: string
     /** 提示词变体列表 */
     promptVariants?: string[]
+    /** 变体图片URL列表（与promptVariants一一对应） */
+    variantImageUrls?: string[][]
     /** 对话ID，多轮对话时传入 */
     conversationId?: string
     /** 是否使用流式响应 */
@@ -326,10 +350,14 @@ declare namespace API {
     models?: string[]
     /** 用户提示词 */
     prompt?: string
+    /** 图片URL列表（可选，用于多模态） */
+    imageUrls?: string[]
     /** 对话ID，多轮对话时传入 */
     conversationId?: string
     /** 是否使用流式响应 */
     stream?: boolean
+    /** 是否启用联网搜索 */
+    webSearchEnabled?: boolean
   }
 
   type BattleRequest = {
@@ -346,6 +374,88 @@ declare namespace API {
   type BattleModelMappingVO = {
     /** 匿名标识到真实模型名称的映射 */
     mapping?: Record<string, string>
+  }
+
+  type UploadImageVO = {
+    /** 可访问URL */
+    url?: string
+    /** 原始文件名 */
+    originalFilename?: string
+    /** 文件大小（字节） */
+    size?: number
+    /** Content-Type */
+    contentType?: string
+  }
+
+  type BaseResponseUploadImageVO = {
+    code?: number
+    data?: UploadImageVO
+    message?: string
+  }
+
+  type GenerateImageRequest = {
+    /** 模型名称（OpenRouter 模型 ID，匿名模式下可为空） */
+    model?: string
+    /** 图片生成提示词 */
+    prompt?: string
+    /** 参考图片 URL 列表（可选，用于图生图） */
+    referenceImageUrls?: string[]
+    /** 生成图片数量（1-4） */
+    count?: number
+    /** 对话ID（可选） */
+    conversationId?: string
+    /** 模型列表（可选，用于创建会话时指定模型） */
+    models?: string[]
+    /** 会话类型（side_by_side / prompt_lab / battle） */
+    conversationType?: string
+    /** 变体索引（0, 1, 2...） */
+    variantIndex?: number
+    /** 消息索引（用于多变体共享同一个消息索引） */
+    messageIndex?: number
+    /** 是否匿名模式（Battle 页面使用） */
+    isAnonymous?: boolean
+  }
+
+  type GeneratedImageVO = {
+    /** 图片访问地址 */
+    url?: string
+    /** 模型名称（OpenRouter 模型 ID） */
+    modelName?: string
+    /** 生成序号（从 0 开始） */
+    index?: number
+    /** 输入 Token 数 */
+    inputTokens?: number
+    /** 输出 Token 数 */
+    outputTokens?: number
+    /** 总 Token 数 */
+    totalTokens?: number
+    /** 本次调用费用（USD） */
+    cost?: number
+    /** 会话ID */
+    conversationId?: string
+    /** 消息索引 */
+    messageIndex?: number
+  }
+
+  type ImageStreamChunkVO = {
+    /** 事件类型：thinking/image/done/error */
+    type?: string
+    /** 思考内容 */
+    thinking?: string
+    /** 完整思考内容 */
+    fullThinking?: string
+    /** 生成的图片信息 */
+    image?: GeneratedImageVO
+    /** 会话ID */
+    conversationId?: string
+    /** 消息索引 */
+    messageIndex?: number
+    /** 变体索引 */
+    variantIndex?: number
+    /** 模型名称 */
+    modelName?: string
+    /** 错误信息 */
+    error?: string
   }
 
   type testAiSimpleParams = {

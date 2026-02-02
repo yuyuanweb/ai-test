@@ -53,7 +53,7 @@ public class ModelServiceImpl implements ModelService {
         // 构建查询条件
         QueryWrapper queryWrapper = QueryWrapper.create()
                 .select("id", "name", "description", "provider", "contextLength",
-                        "inputPrice", "outputPrice", "recommended", "isChina", "tags",
+                        "inputPrice", "outputPrice", "recommended", "isChina", "supportsMultimodal", "supportsImageGen", "supportsToolCalling", "tags",
                         "totalTokens", "totalCost")
                 .where("isDelete = 0");
 
@@ -67,6 +67,16 @@ public class ModelServiceImpl implements ModelService {
         // 提供商筛选
         if (StrUtil.isNotBlank(queryRequest.getProvider())) {
             queryWrapper.and("provider = ?", queryRequest.getProvider());
+        }
+
+        // 是否只查询支持图片生成的模型
+        if (queryRequest.getOnlySupportsImageGen() != null && queryRequest.getOnlySupportsImageGen()) {
+            queryWrapper.and("supportsImageGen = ?", 1);
+        }
+
+        // 是否只查询支持多模态的模型
+        if (queryRequest.getOnlySupportsMultimodal() != null && queryRequest.getOnlySupportsMultimodal()) {
+            queryWrapper.and("supportsMultimodal = ?", 1);
         }
 
         // 排序：国内模型优先，推荐在前，最新在前
@@ -97,7 +107,7 @@ public class ModelServiceImpl implements ModelService {
     public List<ModelVO> getAllModels(Long userId) {
         QueryWrapper queryWrapper = QueryWrapper.create()
                 .select("id", "name", "description", "provider", "contextLength",
-                        "inputPrice", "outputPrice", "recommended", "isChina", "tags",
+                        "inputPrice", "outputPrice", "recommended", "isChina", "supportsMultimodal", "supportsImageGen", "supportsToolCalling", "tags",
                         "totalTokens", "totalCost")
                 .where("isDelete = 0")
                 .orderBy("isChina", false)
@@ -169,6 +179,9 @@ public class ModelServiceImpl implements ModelService {
         }
 
         Boolean isChina = model.getIsChina() != null && model.getIsChina() == 1;
+        Boolean supportsMultimodal = model.getSupportsMultimodal() != null && model.getSupportsMultimodal() == 1;
+        Boolean supportsImageGen = model.getSupportsImageGen() != null && model.getSupportsImageGen() == 1;
+        Boolean supportsToolCalling = model.getSupportsToolCalling() != null && model.getSupportsToolCalling() == 1;
 
         // 查询用户维度的使用统计
         Long userTotalTokens = 0L;
@@ -191,6 +204,9 @@ public class ModelServiceImpl implements ModelService {
                 .outputPrice(model.getOutputPrice())
                 .recommended(model.getRecommended() != null && model.getRecommended() == 1)
                 .isChina(isChina)
+                .supportsMultimodal(supportsMultimodal)
+                .supportsImageGen(supportsImageGen)
+                .supportsToolCalling(supportsToolCalling)
                 .tags(tags)
                 .totalTokens(model.getTotalTokens() != null ? model.getTotalTokens() : 0L)
                 .totalCost(model.getTotalCost() != null ? model.getTotalCost() : java.math.BigDecimal.ZERO)
@@ -228,6 +244,19 @@ public class ModelServiceImpl implements ModelService {
                     modelName, tokens, cost, model.getTotalTokens(), model.getTotalCost());
         } catch (Exception e) {
             log.error("更新模型使用统计失败: modelName={}", modelName, e);
+        }
+    }
+
+    @Override
+    public Model getModelById(String modelId) {
+        if (StrUtil.isBlank(modelId)) {
+            return null;
+        }
+        try {
+            return modelMapper.selectOneById(modelId);
+        } catch (Exception e) {
+            log.error("查询模型失败: modelId={}", modelId, e);
+            return null;
         }
     }
 }

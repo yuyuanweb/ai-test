@@ -28,6 +28,12 @@ public class BattleRequest implements Serializable {
     private String prompt;
 
     /**
+     * 图片地址列表（用于图像理解 / 多模态输入）
+     */
+    @Schema(description = "图片地址列表（用于图像理解 / 多模态输入）")
+    private List<String> imageUrls;
+
+    /**
      * 对话ID (多轮对话时传入)
      */
     @Schema(description = "对话ID，多轮对话时传入")
@@ -38,6 +44,12 @@ public class BattleRequest implements Serializable {
      */
     @Schema(description = "是否使用流式响应", example = "true")
     private Boolean stream = true;
+
+    /**
+     * 是否启用联网搜索（OpenRouter :online）
+     */
+    @Schema(description = "是否启用联网搜索", example = "false")
+    private Boolean webSearchEnabled = false;
 
     /**
      * 是否启用代码预览模式（代码模式下的Battle）
