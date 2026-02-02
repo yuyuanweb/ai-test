@@ -58,6 +58,13 @@ public class OpenRouterModelResponse {
          * 架构信息
          */
         private Architecture architecture;
+
+        /**
+         * 支持的参数列表（不同 provider 的并集）
+         * 用于判断是否支持 tools / function calling 等能力
+         */
+        @JsonProperty("supported_parameters")
+        private List<String> supportedParameters;
     }
 
     /**

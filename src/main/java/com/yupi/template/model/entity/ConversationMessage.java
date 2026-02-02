@@ -73,6 +73,18 @@ public class ConversationMessage implements Serializable {
     private String content;
 
     /**
+     * 图片URL列表（JSON）
+     */
+    @Column("images")
+    private String images;
+
+    /**
+     * 工具调用信息（JSON，含联网搜索关键词/来源等）
+     */
+    @Column("toolsUsed")
+    private String toolsUsed;
+
+    /**
      * 响应时间(毫秒)
      */
     @Column("responseTimeMs")

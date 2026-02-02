@@ -80,6 +80,24 @@ public class Model implements Serializable {
     private Integer isChina;
 
     /**
+     * 是否支持多模态(图片)
+     */
+    @Column("supportsMultimodal")
+    private Integer supportsMultimodal;
+
+    /**
+     * 是否支持图片生成
+     */
+    @Column("supportsImageGen")
+    private Integer supportsImageGen;
+
+    /**
+     * 是否支持工具/函数调用（用于开启联网搜索等）
+     */
+    @Column("supportsToolCalling")
+    private Integer supportsToolCalling;
+
+    /**
      * 标签（JSON数组字符串）
      */
     @Column("tags")

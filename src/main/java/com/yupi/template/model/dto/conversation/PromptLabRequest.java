@@ -28,6 +28,13 @@ public class PromptLabRequest implements Serializable {
     private List<String> promptVariants;
 
     /**
+     * 变体图片URL列表（可选，与promptVariants一一对应）
+     */
+    @Schema(description = "变体图片URL列表（可选，与promptVariants一一对应）",
+            example = "[[\"https://xxx.com/a.jpg\"], []]")
+    private List<List<String>> variantImageUrls;
+
+    /**
      * 对话ID (多轮对话时传入)
      */
     @Schema(description = "对话ID，多轮对话时传入")
@@ -38,6 +45,12 @@ public class PromptLabRequest implements Serializable {
      */
     @Schema(description = "是否使用流式响应", example = "true")
     private Boolean stream = true;
+
+    /**
+     * 是否启用联网搜索（OpenRouter :online）
+     */
+    @Schema(description = "是否启用联网搜索", example = "false")
+    private Boolean webSearchEnabled = false;
 
     private static final long serialVersionUID = 1L;
 }

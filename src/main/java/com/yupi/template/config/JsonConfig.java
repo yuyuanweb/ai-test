@@ -1,5 +1,6 @@
 package com.yupi.template.config;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
@@ -23,6 +24,8 @@ public class JsonConfig {
         module.addSerializer(Long.class, ToStringSerializer.instance);
         module.addSerializer(Long.TYPE, ToStringSerializer.instance);
         objectMapper.registerModule(module);
+        // 包含 null 值字段（这样前端可以看到 images: null）
+        objectMapper.setSerializationInclusion(JsonInclude.Include.ALWAYS);
         return objectMapper;
     }
 }

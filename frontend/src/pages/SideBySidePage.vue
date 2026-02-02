@@ -24,7 +24,7 @@
         </a-select>
 
         <!-- 动态模型选择器 (1-8个) -->
-        <template v-for="(model, index) in selectedModels" :key="`model-select-${index}`">
+        <template v-for="(model, index) in selectedModels" :key="`model-select-${index}-${isImageMode}`">
           <span v-if="index > 0" class="vs-label">vs</span>
           <a-select
             :value="selectedModels[index]"
@@ -77,6 +77,16 @@
         <div v-for="(msg, idx) in messages" :key="idx" class="msg-block">
           <!-- 用户消息 - 右对齐 -->
           <div v-if="msg.type === 'user'" class="user-msg">
+            <div v-if="msg.imageUrls && msg.imageUrls.length" class="user-images">
+              <img
+                v-for="(url, imgIdx) in msg.imageUrls"
+                :key="url + imgIdx"
+                :src="url"
+                alt="用户图片"
+                class="clickable-image"
+                @click="expandImage(url)"
+              />
+            </div>
             <div class="user-bubble">{{ msg.content }}</div>
           </div>
 
@@ -173,19 +183,86 @@
                   </div>
                   <!-- 正常内容 -->
                   <template v-else>
-                    <!-- 思考过程 -->
-                    <details v-if="resp.hasReasoning && resp.reasoning" class="thinking-details" open>
-                      <summary class="thinking-summary">
-                        <span class="thinking-title">
-                          思考了 {{ resp.thinkingTime || calculateThinkingTime(resp.reasoning) }} 秒
+                    <!-- 联网搜索信息 -->
+                    <div v-if="resp.toolsUsed && parseToolsUsed(resp.toolsUsed)?.webSearch?.enabled" class="web-search-info">
+                      <div class="web-search-badge">
+                        <GlobalOutlined class="web-search-icon" />
+                        <span class="web-search-text">
+                          已使用联网搜索
+                          <template v-if="parseToolsUsed(resp.toolsUsed)?.webSearch?.query">
+                            · 关键词: "{{ parseToolsUsed(resp.toolsUsed)?.webSearch?.query }}"
+                          </template>
                         </span>
-                      </summary>
-                      <div class="thinking-content">
-                        <MarkdownRenderer :content="resp.reasoning || ''" />
                       </div>
-                    </details>
-                    <!-- 最终回答 - 使用Markdown渲染 -->
-                    <MarkdownRenderer :content="resp.fullContent || ''" />
+                      <div v-if="parseToolsUsed(resp.toolsUsed)?.webSearch?.sources?.length" class="web-search-sources">
+                        <a
+                          v-for="(source, sourceIdx) in parseToolsUsed(resp.toolsUsed)?.webSearch?.sources?.slice(0, 5)"
+                          :key="sourceIdx"
+                          :href="source.url"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="web-search-source-link"
+                          :title="source.url"
+                        >
+                          <LinkOutlined />
+                          {{ source.title || `来源 ${sourceIdx + 1}` }}
+                        </a>
+                      </div>
+                    </div>
+                    <!-- 图片生成结果 - 优先显示 -->
+                    <template v-if="resp.generatedImages && resp.generatedImages.length > 0">
+                      <!-- 图片生成的思考过程 -->
+                      <details v-if="resp.hasReasoning && resp.reasoning" class="thinking-details" open>
+                        <summary class="thinking-summary">
+                          <span class="thinking-title">
+                            思考了 {{ resp.thinkingTime || calculateThinkingTime(resp.reasoning) }} 秒
+                          </span>
+                        </summary>
+                        <div class="thinking-content">
+                          <MarkdownRenderer :content="resp.reasoning || ''" />
+                        </div>
+                      </details>
+                      <!-- 生成的图片 -->
+                      <div class="generated-images">
+                        <div
+                          v-for="(img, imgIdx) in resp.generatedImages"
+                          :key="`${resp.modelName}-img-${imgIdx}`"
+                          class="generated-image-item"
+                        >
+                          <img
+                            :src="img.url"
+                            :alt="`生成的图片 ${imgIdx + 1}`"
+                            class="generated-image"
+                            @click="expandImage(img.url)"
+                            @error="(e) => {
+                              console.error('❌ 图片加载失败:', img.url, e);
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }"
+                            @load="() => console.log('✅ 图片加载成功:', img.url)"
+                          />
+                          <div v-if="img.cost || img.totalTokens" class="image-metrics">
+                            <span v-if="img.totalTokens">📊 {{ img.totalTokens }}t</span>
+                            <span v-if="img.cost">💰 ${{ img.cost.toFixed(4) }}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </template>
+                    <!-- 文本回答 - 只在没有图片时显示 -->
+                    <template v-else-if="!resp.generatedImages || resp.generatedImages.length === 0">
+                      <!-- 思考过程 -->
+                      <details v-if="resp.hasReasoning && resp.reasoning" class="thinking-details" open>
+                        <summary class="thinking-summary">
+                          <span class="thinking-title">
+                            {{ !resp.done && !resp.fullContent ? '正在思考...' : `思考了 ${resp.thinkingTime || calculateThinkingTime(resp.reasoning)} 秒` }}
+                          </span>
+                        </summary>
+                        <div class="thinking-content">
+                          <MarkdownRenderer :content="resp.reasoning || ''" />
+                        </div>
+                      </details>
+                      <!-- 最终回答 - 使用Markdown渲染（流式显示） -->
+                      <MarkdownRenderer v-if="resp.fullContent" :content="resp.fullContent" />
+                    </template>
                   </template>
                   <div v-if="!resp.done && !resp.hasError" class="dots">
                     <span></span><span></span><span></span>
@@ -239,13 +316,34 @@
             placeholder="输入你的问题..."
             :disabled="isLoading"
             @keydown.enter.exact.prevent="sendMessage"
+            @paste="handlePaste"
             class="text-input"
           ></textarea>
 
+          <!-- 图像生成模式下显示添加图片按钮 -->
+          <div v-if="isImageMode && selectedImageUrls.length === 0" class="add-image-btn" @click="triggerSelectImages">
+            <FileImageOutlined />
+            <span>添加图片</span>
+          </div>
+
           <div class="bottom-bar">
             <div class="left-tools">
-              <button class="tool-icon"><SearchOutlined /></button>
-              <button class="tool-icon"><FileImageOutlined /></button>
+              <button
+                class="tool-icon"
+                :class="{ 'tool-icon-active': webSearchEnabled && hasToolCallingModel, 'tool-icon-disabled': !hasToolCallingModel }"
+                :title="hasToolCallingModel ? (webSearchEnabled ? '关闭联网搜索' : '开启联网搜索') : '当前模型不支持联网搜索'"
+                @click="toggleWebSearch"
+              >
+                <GlobalOutlined />
+              </button>
+              <button
+                class="tool-icon"
+                :class="{ 'tool-icon-active': isImageMode }"
+                title="图片模式"
+                @click="toggleImageMode"
+              >
+                <FileImageOutlined />
+              </button>
               <button class="tool-icon" title="代码模式" @click="switchToCodeMode">
                 <CodeOutlined />
               </button>
@@ -258,6 +356,55 @@
             >
               <SendOutlined />
             </button>
+          </div>
+          <input
+            ref="imageInputRef"
+            type="file"
+            accept="image/*"
+            multiple
+            style="display: none"
+            @change="handleImageChange"
+          />
+          <div v-if="selectedImageUrls.length > 0" class="image-preview-list">
+            <div
+              v-for="(item, index) in selectedImageUrls"
+              :key="item.url + index"
+              class="image-preview-item"
+            >
+              <div class="image-preview-wrapper">
+                <!-- 上传中：显示占位图和动画 -->
+                <div v-if="item.status === 'uploading'" class="image-placeholder">
+                  <div class="image-placeholder-icon">
+                    <FileImageOutlined />
+                  </div>
+                  <div class="image-upload-spinner">
+                    <div class="spinner"></div>
+                  </div>
+                  <div class="image-placeholder-text">上传中...</div>
+                </div>
+                <!-- 上传失败：显示错误提示 -->
+                <div v-else-if="item.status === 'failed'" class="image-placeholder image-placeholder-error">
+                  <div class="image-placeholder-icon">
+                    <CloseOutlined />
+                  </div>
+                  <div class="image-placeholder-text">上传失败</div>
+                </div>
+                <!-- 上传完成：显示实际图片 -->
+                <img v-else :src="item.url" alt="预览图片" class="image-preview-thumb" />
+              </div>
+              <a-button
+                type="text"
+                danger
+                size="small"
+                class="image-delete-btn"
+                @click="removeImage(index)"
+                :disabled="item.status === 'uploading'"
+              >
+                <template #icon>
+                  <CloseOutlined />
+                </template>
+              </a-button>
+            </div>
           </div>
         </div>
       </div>
@@ -285,6 +432,23 @@
         </div>
       </div>
     </a-modal>
+
+    <!-- 图片放大预览弹窗 -->
+    <a-modal
+      :open="!!expandedImageUrl"
+      :footer="null"
+      :width="'90%'"
+      :bodyStyle="{ padding: '0', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#000' }"
+      :centered="true"
+      @cancel="closeExpandedImage"
+    >
+      <img
+        v-if="expandedImageUrl"
+        :src="expandedImageUrl"
+        alt="放大图片"
+        class="expanded-image-preview"
+      />
+    </a-modal>
   </div>
 </template>
 
@@ -295,6 +459,7 @@ import { message } from 'ant-design-vue'
 import { useLoginUserStore } from '@/stores/loginUser'
 import {
   SearchOutlined,
+  FileImageOutlined,
   CodeOutlined,
   SendOutlined,
   SwapOutlined,
@@ -303,13 +468,17 @@ import {
   CopyOutlined,
   ExpandOutlined,
   ReloadOutlined,
+  CloseOutlined,
+  GlobalOutlined,
+  LinkOutlined,
 } from '@ant-design/icons-vue'
 import { listModels, type ModelVO } from '@/api/modelController'
-import { getConversationMessages, getConversation, type StreamChunkVO } from '@/api/conversationController'
+import { getConversationMessages, getConversation, type StreamChunkVO, type ToolsUsedInfo } from '@/api/conversationController'
 import { createPostSSE } from '@/utils/sseClient'
 import { API_BASE_URL } from '@/config/env'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import { addRating, getRating, getRatingsByConversationId, type RatingVO } from '@/api/ratingController'
+import { generateImage, generateImageStream, type GeneratedImageVO } from '@/api/imageController'
 
 interface Msg {
   type: 'user' | 'assistant'
@@ -317,6 +486,7 @@ interface Msg {
   responses?: StreamChunkVO[]
   messageIndex?: number  // 添加消息索引用于评分
   rating?: RatingVO  // 添加评分信息
+  imageUrls?: string[] // 用户消息关联的图片
 }
 
 const router = useRouter()
@@ -326,14 +496,21 @@ const loginUser = computed(() => loginUserStore.loginUser)
 
 const currentMode = ref('side-by-side')
 const selectedModels = ref<(string | undefined)[]>([undefined, undefined]) // 默认2个模型
+// 输入模式：文本 / 图片
+const inputMode = ref<'text' | 'image'>('text')
 const userInput = ref('')
 const isLoading = ref(false)
 const loadingModels = ref(false)
-const modelOptions = ref<{ label: string; value: string }[]>([])
+const modelOptions = ref<{ label: string; value: string; supportsMultimodal?: boolean; supportsImageGen?: boolean; supportsToolCalling?: boolean }[]>([])
+
+// 联网搜索相关状态
+const WEB_SEARCH_STORAGE_KEY = 'ai-test:webSearchEnabled'
+const webSearchEnabled = ref(localStorage.getItem(WEB_SEARCH_STORAGE_KEY) === 'true')
 const messages = ref<Msg[]>([])
 const sse = ref<any>(null)
 const isNewConversation = ref(false) // 标记是否是新会话（刚生成conversationId）
 const expandedResponse = ref<{ modelName: string; content: string } | null>(null) // 最大化的响应
+const expandedImageUrl = ref<string | null>(null) // 放大查看的图片URL
 const messagesWrapper = ref<HTMLElement | null>(null) // 消息列表容器引用
 
 // 分页相关
@@ -341,6 +518,369 @@ const currentPage = ref(1)
 const pageSize = 50
 const hasMore = ref(true)
 const currentSearchText = ref<string>()
+
+// 图片相关状态（多模态输入）
+interface ImageItem {
+  url: string
+  status: 'uploading' | 'completed' | 'failed'
+  file?: File
+}
+const selectedImageUrls = ref<ImageItem[]>([])
+const imageUploading = ref(false)
+const imageInputRef = ref<HTMLInputElement | null>(null)
+
+const isImageMode = computed(() => inputMode.value === 'image')
+
+// 检查选中的模型中是否有支持工具调用的
+const hasToolCallingModel = computed(() => {
+  const validModels = selectedModels.value.filter(m => m) as string[]
+  if (validModels.length === 0) return false
+  
+  return validModels.some(modelId => {
+    const option = modelOptions.value.find(opt => opt.value === modelId)
+    return option?.supportsToolCalling === true
+  })
+})
+
+// 切换联网搜索
+const toggleWebSearch = async () => {
+  if (!hasToolCallingModel.value) {
+    message.warning('当前选中的模型不支持联网搜索')
+    return
+  }
+  
+  // 如果要开启联网搜索，先关闭图像生成模式
+  if (!webSearchEnabled.value && isImageMode.value) {
+    inputMode.value = 'text'
+    await loadModels(undefined, false, false)
+  }
+  
+  webSearchEnabled.value = !webSearchEnabled.value
+  localStorage.setItem(WEB_SEARCH_STORAGE_KEY, webSearchEnabled.value.toString())
+  message.info(webSearchEnabled.value ? '已开启联网搜索' : '已关闭联网搜索')
+}
+
+// 解析工具使用信息
+const parseToolsUsed = (toolsUsedStr: string | undefined): ToolsUsedInfo | null => {
+  if (!toolsUsedStr) return null
+  try {
+    return JSON.parse(toolsUsedStr) as ToolsUsedInfo
+  } catch (e) {
+    console.warn('解析 toolsUsed 失败:', e)
+    return null
+  }
+}
+
+const toggleImageMode = async () => {
+  const wasImageMode = inputMode.value === 'image'
+  inputMode.value = wasImageMode ? 'text' : 'image'
+  console.log('切换图片模式:', inputMode.value, '之前是:', wasImageMode, '已有会话:', isExistingConversation.value)
+  
+  // 保存当前模型数量（在所有情况下都保持不变）
+  const originalModelCount = selectedModels.value.length
+  
+  // 如果要开启图像生成模式，先关闭联网搜索
+  if (inputMode.value === 'image' && webSearchEnabled.value) {
+    webSearchEnabled.value = false
+    localStorage.setItem(WEB_SEARCH_STORAGE_KEY, 'false')
+  }
+  
+  if (inputMode.value === 'image') {
+    // 切换到图片模式
+    const validModels = selectedModels.value.filter(m => m) as string[]
+    const invalidModels: string[] = []
+    
+    // 检查每个已选择的模型是否支持图片生成
+    for (const modelId of validModels) {
+      const option = modelOptions.value.find(opt => opt.value === modelId)
+      if (!option || !option.supportsImageGen) {
+        invalidModels.push(modelId)
+      }
+    }
+    
+    // 清除不支持图片生成的模型选择（但保持模型数量不变）
+    if (invalidModels.length > 0) {
+      const newSelectedModels = selectedModels.value.map(model => 
+        invalidModels.includes(model as string) ? undefined : model
+      )
+      // 确保模型数量不变
+      while (newSelectedModels.length < originalModelCount) {
+        newSelectedModels.push(undefined)
+      }
+      while (newSelectedModels.length > originalModelCount) {
+        newSelectedModels.pop()
+      }
+      selectedModels.value = newSelectedModels
+      message.info('已切换图像生成模式', 1.5)
+    }
+    
+    // 刷新模型列表（只显示支持图片生成的模型）
+    console.log('🔄 切换到图片模式，刷新模型列表（筛选图片生成模型）')
+    // 等待一个 tick 确保 inputMode 和 isImageMode 已更新
+    await nextTick()
+    await loadModels(undefined, false, true)
+    
+    // 确保模型数量不变（防止 loadModels 中的自动选择逻辑修改）
+    if (selectedModels.value.length !== originalModelCount) {
+      console.log('🔒 恢复模型数量:', originalModelCount, '当前:', selectedModels.value.length)
+      while (selectedModels.value.length < originalModelCount) {
+        selectedModels.value.push(undefined)
+      }
+      while (selectedModels.value.length > originalModelCount) {
+        selectedModels.value.pop()
+      }
+      console.log('✅ 恢复后模型数量:', selectedModels.value.length)
+    }
+    
+    // 如果第一个位置没有选择模型，自动选择第一个
+    if (!selectedModels.value[0] && modelOptions.value.length >= 1) {
+      const newSelectedModels = [...selectedModels.value]
+      newSelectedModels[0] = modelOptions.value[0].value
+      selectedModels.value = newSelectedModels
+      console.log('✅ 切换到图片模式后，自动选择第一个模型:', selectedModels.value)
+    }
+    
+    // 等待下一个 tick 确保下拉框更新
+    await nextTick()
+  } else {
+    // 取消图片模式，恢复为文本模式
+    console.log('🔄 取消图片模式，刷新模型列表（显示所有模型）')
+    console.log('🔍 当前 isImageMode:', isImageMode.value, 'inputMode:', inputMode.value)
+    
+    // 等待一个 tick 确保 inputMode 和 isImageMode 已更新
+    await nextTick()
+    console.log('🔍 等待后 isImageMode:', isImageMode.value, 'inputMode:', inputMode.value)
+    
+    // 刷新模型列表（显示所有模型，不筛选）
+    // 显式传递 forceImageGenFilter: false 确保不筛选
+    await loadModels(undefined, false, false)
+    
+    // 确保模型数量不变
+    if (selectedModels.value.length !== originalModelCount) {
+      console.log('🔒 恢复模型数量:', originalModelCount, '当前:', selectedModels.value.length)
+      while (selectedModels.value.length < originalModelCount) {
+        selectedModels.value.push(undefined)
+      }
+      while (selectedModels.value.length > originalModelCount) {
+        selectedModels.value.pop()
+      }
+      console.log('✅ 恢复后模型数量:', selectedModels.value.length)
+    }
+    
+    // 检查当前选中的模型是否是图片生成模型，如果是则清除并选择第一个
+    const currentModel = selectedModels.value[0]
+    if (currentModel) {
+      const currentOption = modelOptions.value.find(opt => opt.value === currentModel)
+      // 如果当前模型是图片生成模型，或者不在新的模型列表中，清除并选择第一个
+      if (currentOption && currentOption.supportsImageGen) {
+        console.log('⚠️ 当前选中的是图片生成模型，清除并选择第一个非图片生成模型')
+        const newSelectedModels = [...selectedModels.value]
+        // 找到第一个非图片生成模型，如果没有则选择第一个
+        const firstNonImageGenModel = modelOptions.value.find(opt => !opt.supportsImageGen)
+        newSelectedModels[0] = firstNonImageGenModel ? firstNonImageGenModel.value : modelOptions.value[0]?.value
+        selectedModels.value = newSelectedModels
+        console.log('✅ 取消图片模式后，已选择第一个模型:', selectedModels.value[0])
+      } else if (!currentOption) {
+        // 当前模型不在列表中，选择第一个
+        console.log('⚠️ 当前选中的模型不在列表中，选择第一个')
+        const newSelectedModels = [...selectedModels.value]
+        newSelectedModels[0] = modelOptions.value[0]?.value
+        selectedModels.value = newSelectedModels
+        console.log('✅ 取消图片模式后，已选择第一个模型:', selectedModels.value[0])
+      }
+    } else {
+      // 如果第一个位置没有选择模型，自动选择第一个
+      if (modelOptions.value.length >= 1) {
+        const newSelectedModels = [...selectedModels.value]
+        newSelectedModels[0] = modelOptions.value[0].value
+        selectedModels.value = newSelectedModels
+        console.log('✅ 取消图片模式后，自动选择第一个模型:', selectedModels.value)
+      }
+    }
+    
+    // 等待下一个 tick 确保下拉框更新
+    await nextTick()
+  }
+}
+
+const isImageCapableOption = (option: { supportsMultimodal?: boolean; supportsImageGen?: boolean }) => {
+  // 图片生成模式：检查 supportsImageGen
+  // 图片输入模式：检查 supportsMultimodal
+  if (isImageMode.value) {
+    return !!option.supportsImageGen
+  }
+  return !!option.supportsMultimodal
+}
+
+const uploadImages = async (files: File[]) => {
+  if (!files.length) {
+    return
+  }
+  const remainingSlots = 5 - selectedImageUrls.value.length
+  if (remainingSlots <= 0) {
+    message.warning('最多只能选择 5 张图片')
+    return
+  }
+  const filesToUpload = files.slice(0, remainingSlots)
+  if (filesToUpload.length < files.length) {
+    message.warning(`已达到图片数量上限，最多支持 5 张，本次仅上传前 ${filesToUpload.length} 张`)
+  }
+
+  try {
+    imageUploading.value = true
+    const { uploadImage } = await import('@/api/fileController')
+    
+    // 先添加占位图（上传中状态）
+    const placeholderItems: ImageItem[] = filesToUpload.map((file, index) => {
+      // 使用唯一的占位符 URL（基于文件名和时间戳）
+      const placeholderUrl = `placeholder://${file.name}-${Date.now()}-${index}`
+      return {
+        url: placeholderUrl,
+        status: 'uploading',
+        file
+      }
+    })
+    selectedImageUrls.value.push(...placeholderItems)
+    
+    // 逐个上传图片
+    for (let i = 0; i < filesToUpload.length; i++) {
+      const file = filesToUpload[i]
+      const placeholderIndex = selectedImageUrls.value.length - filesToUpload.length + i
+      
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+        const res = await uploadImage(formData)
+        
+        if (res?.data?.code === 0 && res.data.data?.url) {
+          // 更新为完成状态
+          selectedImageUrls.value[placeholderIndex] = {
+            url: res.data.data.url,
+            status: 'completed'
+          }
+        } else {
+          // 更新为失败状态
+          selectedImageUrls.value[placeholderIndex].status = 'failed'
+          message.error(res?.data?.message || '图片上传失败')
+        }
+      } catch (error) {
+        console.error('单张图片上传失败:', error)
+        selectedImageUrls.value[placeholderIndex].status = 'failed'
+        message.error(`图片 "${file.name}" 上传失败`)
+      }
+    }
+    
+    const successCount = selectedImageUrls.value.filter(item => item.status === 'completed').length
+    if (successCount > 0) {
+      message.success(`成功上传 ${successCount} 张图片`, 1.5)
+      
+      // 如果上传成功且有图片，且不是图片生成模式，自动过滤为多模态模型
+      const hasCompletedImages = getCompletedImageUrls().length > 0
+      if (hasCompletedImages && !isImageMode.value) {
+        console.log('🖼️ 检测到图片上传，自动过滤为多模态模型')
+        // 清除不支持多模态的已选模型
+        const completedImageUrls = getCompletedImageUrls()
+        if (completedImageUrls.length > 0) {
+          const invalidModels: (string | undefined)[] = []
+          selectedModels.value.forEach((model, index) => {
+            if (model) {
+              const modelOption = modelOptions.value.find(opt => opt.value === model)
+              if (modelOption && !modelOption.supportsMultimodal) {
+                invalidModels.push(model)
+                selectedModels.value[index] = undefined
+              }
+            }
+          })
+          
+          if (invalidModels.length > 0) {
+            message.info('已切换为多模态模式，已清除不支持多模态的模型')
+          }
+          
+          // 刷新模型列表（只显示多模态模型）
+          await loadModels(undefined, false, false, true)
+          
+          // 如果第一个模型被清空，自动选择第一个多模态模型
+          if (!selectedModels.value[0] && modelOptions.value.length > 0) {
+            selectedModels.value[0] = modelOptions.value[0].value
+            console.log('✅ 自动选择第一个多模态模型:', selectedModels.value[0])
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('图片上传异常', error)
+    message.error('图片上传失败，请重试')
+  } finally {
+    imageUploading.value = false
+  }
+}
+
+const removeImage = (index: number) => {
+  if (index >= 0 && index < selectedImageUrls.value.length) {
+    selectedImageUrls.value.splice(index, 1)
+    console.log('🗑️ 删除图片，剩余:', selectedImageUrls.value.length)
+    
+    // 如果删除后没有图片了，且不是图片生成模式，刷新模型列表（显示所有模型）
+    const hasCompletedImages = getCompletedImageUrls().length > 0
+    if (!hasCompletedImages && !isImageMode.value) {
+      console.log('🔄 已删除所有图片，刷新模型列表（显示所有模型）')
+      loadModels(undefined, false, false, false)
+    }
+  }
+}
+
+// 获取已完成的图片 URL 列表
+const getCompletedImageUrls = (): string[] => {
+  return selectedImageUrls.value
+    .filter(item => item.status === 'completed')
+    .map(item => item.url)
+}
+
+// 检查是否有正在上传的图片
+const hasUploadingImages = (): boolean => {
+  return selectedImageUrls.value.some(item => item.status === 'uploading')
+}
+
+const triggerSelectImages = () => {
+  if (isLoading.value) {
+    message.warning('正在请求中，请稍后再选择图片')
+    return
+  }
+  imageInputRef.value?.click()
+}
+
+const handleImageChange = async (event: Event) => {
+  const target = event.target as HTMLInputElement | null
+  if (!target || !target.files || target.files.length === 0) {
+    return
+  }
+  const files = Array.from(target.files)
+  await uploadImages(files)
+  target.value = ''
+}
+
+const handlePaste = async (event: ClipboardEvent) => {
+  const clipboardData = event.clipboardData
+  if (!clipboardData) {
+    return
+  }
+  const items = clipboardData.items
+  const imageFiles: File[] = []
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i]
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      const file = item.getAsFile()
+      if (file) {
+        imageFiles.push(file)
+      }
+    }
+  }
+  if (imageFiles.length === 0) {
+    return
+  }
+  // 不阻止默认行为，允许文本正常粘贴
+  await uploadImages(imageFiles)
+}
 
 const handleModeChange = (mode: string) => {
   router.push(`/${mode}`)
@@ -403,9 +943,26 @@ const getAvailableOptionsForIndex = (currentIndex: number) => {
   })
 
   // 过滤掉已被选择的模型
-  const available = modelOptions.value.filter(option =>
-    !selectedByOthers.includes(option.value)
-  )
+  // 后端已经根据 onlySupportsImageGen 过滤了，但为了兼容性，前端也做一次过滤
+  const available = modelOptions.value.filter(option => {
+    if (selectedByOthers.includes(option.value)) {
+      return false
+    }
+    // 如果是图片生成模式，确保选项支持图片生成
+    if (isImageMode.value) {
+      if (!option.supportsImageGen) {
+        return false
+      }
+    }
+    // 文本模式下，不进行额外过滤（后端已经处理）
+    return true
+  })
+  
+  console.log(`📋 位置${currentIndex}过滤后可选:`, {
+    总数: available.length,
+    图片模式: isImageMode.value,
+    选项: available.map(o => ({ label: o.label, supportsImageGen: o.supportsImageGen }))
+  })
 
   console.log(`📋 位置${currentIndex}过滤后可选:`, available.length)
   return available
@@ -427,7 +984,7 @@ const removeModel = () => {
   }
 }
 
-const loadModels = async (searchText?: string, append: boolean = false) => {
+const loadModels = async (searchText?: string, append: boolean = false, forceImageGenFilter?: boolean, forceMultimodalFilter?: boolean) => {
   try {
     loadingModels.value = true
 
@@ -437,17 +994,43 @@ const loadModels = async (searchText?: string, append: boolean = false) => {
       currentSearchText.value = searchText
     }
 
+    // 如果显式指定了 forceImageGenFilter，使用该值；否则根据 isImageMode 判断
+    const shouldFilterImageGen = forceImageGenFilter !== undefined 
+        ? forceImageGenFilter 
+        : (isImageMode.value ? true : undefined)
+    
+    // 如果显式指定了 forceMultimodalFilter，使用该值；否则根据是否有图片判断（且不是图片生成模式）
+    const hasCompletedImages = getCompletedImageUrls().length > 0
+    const shouldFilterMultimodal = forceMultimodalFilter !== undefined
+        ? forceMultimodalFilter
+        : (!isImageMode.value && hasCompletedImages ? true : undefined)
+    
+    console.log('📡 加载模型列表:', {
+      isImageMode: isImageMode.value,
+      inputMode: inputMode.value,
+      forceImageGenFilter,
+      forceMultimodalFilter,
+      onlySupportsImageGen: shouldFilterImageGen,
+      onlySupportsMultimodal: shouldFilterMultimodal,
+      hasCompletedImages
+    })
+
     const res: any = await listModels({
       pageNum: currentPage.value,
       pageSize,
-      searchText: currentSearchText.value || undefined
+      searchText: currentSearchText.value || undefined,
+      onlySupportsImageGen: shouldFilterImageGen,
+      onlySupportsMultimodal: shouldFilterMultimodal
     })
 
     if (res.data && res.data.code === 0 && res.data.data && res.data.data.records) {
-      const models = res.data.data.records
-      const newOptions = models.map((m: ModelVO) => ({
+      const models = res.data.data.records as ModelVO[]
+      const newOptions = models.map((m) => ({
         label: m.name,
         value: m.id,
+        supportsMultimodal: m.supportsMultimodal,
+        supportsImageGen: m.supportsImageGen,
+        supportsToolCalling: m.supportsToolCalling,
       }))
 
       if (append) {
@@ -457,6 +1040,15 @@ const loadModels = async (searchText?: string, append: boolean = false) => {
         modelOptions.value = [...modelOptions.value, ...uniqueNewOptions]
       } else {
         // 覆盖模式：替换列表
+        console.log('🔄 更新模型选项列表:', {
+          模式: isImageMode.value ? '图片生成' : (shouldFilterMultimodal ? '多模态' : '文本'),
+          数量: newOptions.length,
+          选项: newOptions.map(o => ({ 
+            label: o.label, 
+            supportsImageGen: o.supportsImageGen,
+            supportsMultimodal: o.supportsMultimodal
+          }))
+        })
         modelOptions.value = newOptions
       }
 
@@ -464,13 +1056,22 @@ const loadModels = async (searchText?: string, append: boolean = false) => {
       hasMore.value = models.length >= pageSize
       console.log('模型加载:', append ? '追加' : '初始', newOptions.length, '个，总计', modelOptions.value.length)
 
-      // 如果当前没有选择模型，自动选择前两个
-      if (!selectedModels.value[0] && !append && modelOptions.value.length >= 2) {
-        selectedModels.value = [
-          modelOptions.value[0].value,
-          modelOptions.value[1].value
-        ]
-        console.log('✅ 自动选择默认模型:', selectedModels.value)
+      // 如果当前没有选择模型，且不是已有会话，自动选择默认模型
+      // 注意：这里只在初始加载时执行，切换模式时的自动选择在 toggleImageMode 中处理
+      if (!append && !isExistingConversation.value && modelOptions.value.length >= 1) {
+        const newSelectedModels = [...selectedModels.value]
+        // 第一个模型槽位为空时，选择列表第一个
+        if (!newSelectedModels[0]) {
+          newSelectedModels[0] = modelOptions.value[0].value
+        }
+        // 第二个模型槽位为空时，选择列表第二个（如果有），否则选择第一个
+        if (newSelectedModels.length >= 2 && !newSelectedModels[1] && modelOptions.value.length >= 1) {
+          newSelectedModels[1] = modelOptions.value.length >= 2 
+            ? modelOptions.value[1].value 
+            : modelOptions.value[0].value
+        }
+        selectedModels.value = newSelectedModels
+        console.log('✅ 初始加载，自动选择模型:', selectedModels.value)
       }
     }
   } catch (err) {
@@ -549,6 +1150,177 @@ const sendMessage = async () => {
   userInput.value = ''
   isLoading.value = true
 
+  // 获取已选择的有效模型
+  const validModels = selectedModels.value.filter(m => m) as string[]
+  console.log('🎯 准备发送消息，选中的模型:', validModels)
+  console.log('🎯 模型数量:', validModels.length)
+
+  // 图片生成模式
+  if (isImageMode.value) {
+    if (validModels.length === 0) {
+      message.warning('请至少选择一个支持图片生成的模型')
+      isLoading.value = false
+      return
+    }
+    if (!text) {
+      message.warning('请输入图片生成提示词')
+      isLoading.value = false
+      return
+    }
+
+  // 检查是否有正在上传的图片
+  if (hasUploadingImages()) {
+    message.warning('请等待图片上传完成后再发送')
+    isLoading.value = false
+    return
+  }
+
+  // 先保存图片URL（在清空之前）
+  const completedImageUrls = getCompletedImageUrls()
+
+  // 添加用户消息
+  const userMsgIndex = messages.value.length
+  messages.value.push({
+    type: 'user',
+    content: text,
+    messageIndex: Math.floor(userMsgIndex / 2),
+    imageUrls: completedImageUrls
+  })
+
+  // 清空已选图片
+  selectedImageUrls.value = []
+
+    // 添加assistant消息占位
+    const assistantMsgIndex = messages.value.length
+    const initialResponses = validModels.map(model => ({
+      modelName: model,
+      fullContent: '',
+      done: false,
+      hasError: false,
+      generatedImages: [] as any[]
+    }))
+
+    messages.value.push({
+      type: 'assistant',
+      responses: initialResponses,
+      messageIndex: Math.floor(assistantMsgIndex / 2),
+      rating: undefined
+    })
+
+    scrollToBottom()
+
+    // 获取当前会话ID（如果有）
+    const currentConversationId = route.query.conversationId as string
+
+    // 为每个模型调用图片生成流式接口
+    try {
+      // 用于存储第一个返回的 conversationId
+      let savedConversationId: string | undefined = undefined
+      
+      const generatePromises = validModels.map((model, modelIndex) => {
+        return new Promise<void>((resolve) => {
+          const isFirst = modelIndex === 0 && !currentConversationId
+          
+          generateImageStream(
+            {
+              model,
+              prompt: text,
+              referenceImageUrls: completedImageUrls.length > 0 ? completedImageUrls : undefined,
+              count: 1,
+              conversationId: savedConversationId || currentConversationId || undefined,
+              models: isFirst ? validModels : undefined,
+              conversationType: isFirst ? 'side_by_side' : undefined,
+              variantIndex: modelIndex
+            },
+            (chunk: API.ImageStreamChunkVO) => {
+              const msg = messages.value[assistantMsgIndex]
+              if (!msg || !msg.responses) return
+              
+              const idx = msg.responses.findIndex((r: any) => r.modelName === model)
+              if (idx < 0) return
+              
+              if (chunk.type === 'thinking') {
+                msg.responses[idx] = {
+                  ...msg.responses[idx],
+                  reasoning: chunk.fullThinking || '',
+                  hasReasoning: true
+                }
+                messages.value = [...messages.value]
+                scrollToBottom()
+              } else if (chunk.type === 'image' && chunk.image) {
+                const currentImages = msg.responses[idx].generatedImages || []
+                msg.responses[idx] = {
+                  ...msg.responses[idx],
+                  generatedImages: [...currentImages, chunk.image]
+                }
+                messages.value = [...messages.value]
+                scrollToBottom()
+                
+                // 保存 conversationId
+                if (chunk.conversationId && !savedConversationId) {
+                  savedConversationId = chunk.conversationId
+                  if (!currentConversationId) {
+                    router.replace({
+                      path: '/side-by-side',
+                      query: { conversationId: chunk.conversationId }
+                    })
+                  }
+                }
+              } else if (chunk.type === 'done') {
+                msg.responses[idx] = {
+                  ...msg.responses[idx],
+                  done: true
+                }
+                messages.value = [...messages.value]
+                resolve()
+              } else if (chunk.type === 'error') {
+                const errorMsg = chunk.error || '图片生成失败'
+                msg.responses[idx] = {
+                  ...msg.responses[idx],
+                  done: true,
+                  hasError: true,
+                  error: errorMsg
+                }
+                messages.value = [...messages.value]
+                message.error(`${model} 图片生成失败: ${errorMsg}`, 1)
+                resolve()
+              }
+            },
+            (error) => {
+              console.error(`图片生成失败 (${model}):`, error)
+              const msg = messages.value[assistantMsgIndex]
+              if (msg && msg.responses) {
+                const idx = msg.responses.findIndex((r: any) => r.modelName === model)
+                if (idx >= 0) {
+                  msg.responses[idx] = {
+                    ...msg.responses[idx],
+                    done: true,
+                    hasError: true,
+                    error: error.message || '图片生成失败'
+                  }
+                  messages.value = [...messages.value]
+                }
+              }
+              message.error(`${model} 图片生成失败: ${error.message || '未知错误'}`, 1)
+              resolve()
+            },
+            () => {
+              console.log(`🖼️ ${model} 流式响应完成`)
+            }
+          )
+        })
+      })
+
+      await Promise.all(generatePromises)
+      isLoading.value = false
+    } catch (err: any) {
+      console.error('图片生成异常:', err)
+      isLoading.value = false
+      message.error('图片生成失败: ' + err.message)
+    }
+    return
+  }
+
   // 如果当前没有conversationId，说明是新会话
   const currentConversationId = route.query.conversationId as string
   if (!currentConversationId) {
@@ -556,18 +1328,27 @@ const sendMessage = async () => {
     console.log('🆕 标记为新会话')
   }
 
-  // 获取已选择的有效模型
-  const validModels = selectedModels.value.filter(m => m) as string[]
-  console.log('🎯 准备发送消息，选中的模型:', validModels)
-  console.log('🎯 模型数量:', validModels.length)
+  // 检查是否有正在上传的图片
+  if (hasUploadingImages()) {
+    message.warning('请等待图片上传完成后再发送')
+    isLoading.value = false
+    return
+  }
+
+  // 先保存图片URL（在清空之前）
+  const completedImageUrls = getCompletedImageUrls()
 
   // 添加用户消息
   const userMsgIndex = messages.value.length
   messages.value.push({
     type: 'user',
     content: text,
-    messageIndex: Math.floor(userMsgIndex / 2)  // 每两条消息（user+assistant）为一轮
+    messageIndex: Math.floor(userMsgIndex / 2),  // 每两条消息（user+assistant）为一轮
+    imageUrls: completedImageUrls
   })
+
+  // 清空已选图片
+  selectedImageUrls.value = []
 
   // 添加assistant消息占位（索引是当前长度，因为接下来要push）
   const assistantMsgIndex = messages.value.length
@@ -595,7 +1376,16 @@ const sendMessage = async () => {
 
   try {
     const url = `${API_BASE_URL}/conversation/side-by-side/stream`
-    console.log('发送请求:', { conversationId: currentConversationId, models: validModels, prompt: text })
+    // 联网搜索：只有在有支持工具调用的模型时才启用
+    const effectiveWebSearch = webSearchEnabled.value && hasToolCallingModel.value
+    console.log('📤 发送Side-by-Side请求:', { 
+      conversationId: currentConversationId, 
+      models: validModels, 
+      prompt: text, 
+      imageUrls: completedImageUrls,
+      imageCount: completedImageUrls.length,
+      webSearchEnabled: effectiveWebSearch
+    })
 
     sse.value = await createPostSSE(
       url,
@@ -603,7 +1393,9 @@ const sendMessage = async () => {
         conversationId: currentConversationId,
         models: validModels,
         prompt: text,
-        stream: true
+        imageUrls: completedImageUrls.length > 0 ? completedImageUrls : undefined,
+        stream: true,
+        webSearchEnabled: effectiveWebSearch
       },
       {
         onMessage: (chunk: StreamChunkVO) => {
@@ -664,17 +1456,15 @@ const sendMessage = async () => {
           console.log('🔍 响应列表中的模型:', msg.responses.map((r: any) => r.modelName))
 
           if (idx >= 0) {
-            // 使用响应式替换确保Vue检测到变化
+            // 直接更新响应数据
             msg.responses[idx] = { ...msg.responses[idx], ...chunk }
-            console.log('✔ 更新成功:', chunk.modelName, 'at index', idx, '→ done:', msg.responses[idx].done, '内容长度:', msg.responses[idx].fullContent?.length)
-
             // 强制触发响应式更新
             messages.value = [...messages.value]
+            
+            console.log('✔ 更新成功:', chunk.modelName, 'at index', idx, '→ done:', msg.responses[idx].done, '内容长度:', msg.responses[idx].fullContent?.length, 'reasoning长度:', msg.responses[idx].reasoning?.length)
 
-            // 如果是第一次收到内容，滚动到底部
-            if (chunk.fullContent && chunk.fullContent.length < 100) {
-              scrollToBottom()
-            }
+            // 滚动到底部
+            scrollToBottom()
           } else {
             console.error('❌ 未找到匹配的响应槽位！收到的modelName:', chunk.modelName)
             console.error('❌ 期望的模型列表:', validModels)
@@ -787,6 +1577,14 @@ const copyResponse = async (content: string, modelName: string) => {
 // 最大化响应
 const expandResponse = (modelName: string, content: string) => {
   expandedResponse.value = { modelName, content }
+}
+
+const expandImage = (imageUrl: string) => {
+  expandedImageUrl.value = imageUrl
+}
+
+const closeExpandedImage = () => {
+  expandedImageUrl.value = null
 }
 
 // 关闭最大化
@@ -904,6 +1702,9 @@ const handleRating = async (msgIndex: number, ratingType: string, winnerModelNam
   } catch (error) {
     console.error('评分失败:', error)
     message.error('评分失败')
+  } finally {
+    // 发送后清空输入区域的图片（图片仍保留在本轮用户消息中）
+    selectedImageUrls.value = []
   }
 }
 
@@ -1009,6 +1810,33 @@ const loadConversationHistory = async () => {
         selectedModels.value = [...modelsList]
         console.log('✅ 设置模型列表:', selectedModels.value)
         console.log('✅ 模型数量:', selectedModels.value.length)
+        
+        // 检查选中的模型是否是图片生成模型，如果是则自动选中图片模式
+        // 先加载模型列表以获取模型信息（不筛选，获取所有模型信息）
+        await loadModels(undefined, false, false)
+        
+        // 检查第一个选中的模型是否是图片生成模型
+        const firstModel = selectedModels.value[0]
+        console.log('🔍 检查第一个模型:', firstModel, '模型选项数量:', modelOptions.value.length)
+        if (firstModel) {
+          const modelOption = modelOptions.value.find(opt => opt.value === firstModel)
+          console.log('🔍 找到模型选项:', modelOption ? {
+            value: modelOption.value,
+            label: modelOption.label,
+            supportsImageGen: modelOption.supportsImageGen
+          } : '未找到')
+          if (modelOption && modelOption.supportsImageGen) {
+            console.log('🖼️ 检测到图片生成模型，自动选中图片模式')
+            inputMode.value = 'image'
+            // 刷新模型列表（只显示图片生成模型）
+            await loadModels(undefined, false, true)
+            console.log('✅ 图片模式已选中，inputMode:', inputMode.value, 'isImageMode:', isImageMode.value)
+          } else {
+            console.log('ℹ️ 第一个模型不是图片生成模型，保持文本模式')
+          }
+        } else {
+          console.log('ℹ️ 没有选中的模型')
+        }
       } else {
         console.warn('⚠️ models字段无效:', modelsList)
       }
@@ -1052,16 +1880,34 @@ const loadConversationHistory = async () => {
 
       sortedIndexes.forEach(index => {
         const msgs = messagesByIndex.get(index)!
+        
+        // 分离用户消息和 AI 消息
+        const userMsgs = msgs.filter(m => m.role === 'user')
+        const assistantMsgs = msgs.filter(m => m.role === 'assistant')
 
-        if (msgs[0].role === 'user') {
-          // 用户消息
+        // 先添加用户消息
+        if (userMsgs.length > 0) {
+          const userMsg = userMsgs[0]
+          let imageUrls: string[] | undefined
+          if (userMsg.images) {
+            try {
+              imageUrls = JSON.parse(userMsg.images)
+            } catch (e) {
+              console.warn('解析用户消息图片失败:', e)
+            }
+          }
           groupedMessages.push({
             type: 'user',
-            content: msgs[0].content,
-            messageIndex: index
+            content: userMsg.content,
+            messageIndex: index,
+            imageUrls
           })
-        } else if (msgs[0].role === 'assistant') {
+        }
+        
+        // 再添加 AI 响应
+        if (assistantMsgs.length > 0) {
           // AI回复 - 多个模型的响应
+          const msgs = assistantMsgs
           console.log('🔍 原始assistant消息:', msgs)
           const responses = msgs.map((msg: any) => {
             console.log('🔍 单条消息字段:', {
@@ -1069,14 +1915,49 @@ const loadConversationHistory = async () => {
               inputTokens: msg.inputTokens,
               outputTokens: msg.outputTokens,
               cost: msg.cost,
-              responseTimeMs: msg.responseTimeMs
+              responseTimeMs: msg.responseTimeMs,
+              images: msg.images
             })
             // 计算思考时间
             const thinkingTime = msg.reasoning
               ? Math.max(1, Math.min(Math.ceil(msg.reasoning.length / 200), 60))
               : undefined
 
-            return {
+            // 解析生成的图片（如果存在）
+            let generatedImages: GeneratedImageVO[] | undefined
+            if (msg.images) {
+              try {
+                const imageUrls = JSON.parse(msg.images) as string[]
+                console.log('🖼️ 从会话历史解析图片:', {
+                  modelName: msg.modelName,
+                  imagesJson: msg.images,
+                  imageUrls,
+                  imageUrlsCount: imageUrls?.length
+                })
+                if (imageUrls && Array.isArray(imageUrls) && imageUrls.length > 0) {
+                  generatedImages = imageUrls.map((url, idx) => ({
+                    url,
+                    modelName: msg.modelName,
+                    index: idx,
+                    inputTokens: msg.inputTokens || 0,
+                    outputTokens: msg.outputTokens || 0,
+                    totalTokens: (msg.inputTokens || 0) + (msg.outputTokens || 0),
+                    cost: msg.cost
+                  }))
+                  console.log('✅ 成功解析图片:', generatedImages)
+                }
+              } catch (e) {
+                console.warn('❌ 解析助手消息图片失败:', e, msg.images)
+              }
+            } else {
+              console.log('ℹ️ 助手消息没有图片字段:', {
+                modelName: msg.modelName,
+                hasImages: !!msg.images,
+                content: msg.content?.substring(0, 50)
+              })
+            }
+
+            const response = {
               modelName: msg.modelName || '',
               fullContent: msg.content || '',
               done: true,
@@ -1087,8 +1968,17 @@ const loadConversationHistory = async () => {
               cost: msg.cost,
               reasoning: msg.reasoning,
               hasReasoning: !!msg.reasoning,
-              thinkingTime: thinkingTime
+              thinkingTime: thinkingTime,
+              generatedImages: generatedImages,
+              toolsUsed: msg.toolsUsed
             }
+            console.log('✅ 构建响应对象:', {
+              modelName: response.modelName,
+              hasGeneratedImages: !!response.generatedImages,
+              generatedImagesCount: response.generatedImages?.length,
+              fullContent: response.fullContent?.substring(0, 50)
+            })
+            return response
           })
 
           // 按照selectedModels的顺序排序responses
@@ -1114,6 +2004,59 @@ const loadConversationHistory = async () => {
 
       // 加载评分信息
       await loadRatings(conversationId)
+      
+      // 通过消息列表的最后一个消息判断是否为图片生成
+      // 检查最后一个 assistant 消息是否有 images 字段
+      let shouldEnableImageMode = false
+      if (groupedMessages.length > 0) {
+        // 从后往前查找最后一个 assistant 消息
+        for (let i = groupedMessages.length - 1; i >= 0; i--) {
+          const msg = groupedMessages[i]
+          if (msg.type === 'assistant' && msg.responses && msg.responses.length > 0) {
+            // 检查是否有任何响应包含生成的图片
+            const hasGeneratedImages = msg.responses.some((resp: any) => 
+              resp.generatedImages && resp.generatedImages.length > 0
+            )
+            if (hasGeneratedImages) {
+              shouldEnableImageMode = true
+              console.log('🖼️ 检测到最后一个消息包含生成的图片，应启用图片模式')
+              break
+            }
+          }
+        }
+      }
+      
+      // 如果应该启用图片模式，或者第一个模型是图片生成模型，则设置图片模式
+      if (shouldEnableImageMode) {
+        console.log('🖼️ 根据消息历史，自动选中图片模式')
+        inputMode.value = 'image'
+        // 刷新模型列表（只显示图片生成模型）
+        await loadModels(undefined, false, true)
+        console.log('✅ 图片模式已选中，inputMode:', inputMode.value, 'isImageMode:', isImageMode.value)
+      } else {
+        // 检查第一个选中的模型是否是图片生成模型
+        const firstModel = selectedModels.value[0]
+        if (firstModel && modelOptions.value.length > 0) {
+          const modelOption = modelOptions.value.find(opt => opt.value === firstModel)
+          console.log('🔍 消息加载后检查模型:', {
+            firstModel,
+            modelOption: modelOption ? {
+              value: modelOption.value,
+              label: modelOption.label,
+              supportsImageGen: modelOption.supportsImageGen
+            } : null,
+            currentInputMode: inputMode.value,
+            currentIsImageMode: isImageMode.value
+          })
+          if (modelOption && modelOption.supportsImageGen && inputMode.value !== 'image') {
+            console.log('🖼️ 检测到图片生成模型，自动选中图片模式')
+            inputMode.value = 'image'
+            // 刷新模型列表（只显示图片生成模型）
+            await loadModels(undefined, false, true)
+            console.log('✅ 图片模式已选中，inputMode:', inputMode.value, 'isImageMode:', isImageMode.value)
+          }
+        }
+      }
 
       // 加载完成后滚动到底部
       scrollToBottom()
@@ -1158,6 +2101,7 @@ watch(() => route.query.conversationId, (newId, oldId) => {
     console.log('🆕 开始新对话，清空历史消息')
     messages.value = []
     userInput.value = ''
+    selectedImageUrls.value = []
     isNewConversation.value = false
     // 重置为默认2个模型（如果已加载模型列表，使用前两个）
     if (modelOptions.value.length >= 2) {
@@ -1177,6 +2121,7 @@ watch(() => route.query.t, (newT) => {
     console.log('🆕 新对话触发，清空状态')
     messages.value = []
     userInput.value = ''
+    selectedImageUrls.value = []
     // 重置为默认2个模型（如果已加载模型列表，使用前两个）
     if (modelOptions.value.length >= 2) {
       selectedModels.value = [
@@ -1436,6 +2381,31 @@ div.response-col {
   overflow-y: auto !important;
 }
 
+.generating-content-hint {
+  color: #6b7280;
+  font-size: 13px;
+  padding: 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.generating-content-hint::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  border: 2px solid #e5e7eb;
+  border-top-color: #6b7280;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 #side-by-side-page .dots,
 .dots {
   display: flex !important;
@@ -1575,6 +2545,36 @@ div.response-col {
   width: 100%;
 }
 
+.user-images {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.user-images img {
+  width: 56px;
+  height: 56px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid #e5e7eb;
+}
+
+.clickable-image {
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.clickable-image:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.expanded-image-preview {
+  max-width: 100%;
+  max-height: 80vh;
+  object-fit: contain;
+}
+
 .user-bubble {
   display: inline-block;
   background: #f3f4f6;
@@ -1626,6 +2626,28 @@ div.response-col {
   font-family: inherit;
 }
 
+.add-image-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 8px 15px;
+  padding: 12px 16px;
+  background: #f5f5f5;
+  border: 1px dashed #d9d9d9;
+  border-radius: 8px;
+  cursor: pointer;
+  color: #666;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.add-image-btn:hover {
+  border-color: #1890ff;
+  color: #1890ff;
+  background: #f0f7ff;
+}
+
 .bottom-bar {
   display: flex;
   justify-content: space-between;
@@ -1651,10 +2673,26 @@ div.response-col {
   justify-content: center;
   color: #777;
   transition: background 0.12s;
+  pointer-events: auto;
 }
 
-.tool-icon:hover {
+.tool-icon:hover:not(:disabled) {
   background: #f5f5f5;
+}
+
+.tool-icon:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.tool-icon-active {
+  background: #e6f4ff;
+  color: #1890ff;
+}
+
+.tool-icon-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .send-icon {
@@ -1678,6 +2716,133 @@ div.response-col {
 .send-icon:disabled {
   background: #ddd;
   cursor: not-allowed;
+}
+
+.image-preview-list {
+  display: flex;
+  gap: 8px;
+  padding: 6px 12px 10px;
+  border-top: 1px solid #f5f5f5;
+  overflow-x: auto;
+  max-height: 110px;
+  box-sizing: border-box;
+}
+
+.image-preview-item {
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.image-preview-wrapper {
+  position: relative;
+  width: 72px;
+  height: 72px;
+}
+
+.image-preview-thumb {
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.image-placeholder {
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.image-placeholder-error {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.image-placeholder-icon {
+  font-size: 24px;
+  color: #9ca3af;
+  margin-bottom: 4px;
+}
+
+.image-placeholder-error .image-placeholder-icon {
+  color: #ef4444;
+}
+
+.image-placeholder-text {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.image-placeholder-error .image-placeholder-text {
+  color: #dc2626;
+}
+
+.image-upload-spinner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #e5e7eb;
+  border-top-color: #1890ff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.image-delete-btn {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 50%;
+  color: #ff4d4f;
+  font-size: 12px;
+  z-index: 10;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s;
+}
+
+.image-delete-btn:hover {
+  background: #fff2f0;
+  border-color: #ff4d4f;
+  transform: scale(1.1);
+}
+
+.image-delete-btn:active {
+  transform: scale(0.95);
 }
 
 .user-info {
@@ -1714,6 +2879,54 @@ div.response-col {
   height: 32px;
   border-radius: 6px;
   object-fit: contain;
+}
+
+.generated-images {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+.generated-image-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.generated-image {
+  max-width: 512px;
+  max-height: 512px;
+  width: auto;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  display: block;
+  margin: 0 auto;
+  object-fit: contain;
+}
+
+.generated-image:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+@media (max-width: 768px) {
+  .generated-image {
+    max-width: 100%;
+    max-height: 400px;
+  }
+}
+
+.image-metrics {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: #666;
+  padding: 4px 0;
 }
 
 .expanded-header h3 {
@@ -1783,5 +2996,69 @@ div.response-col {
 .rating-btn.rating-selected:hover {
   background: #40a9ff;
   border-color: #40a9ff;
+}
+
+/* 联网搜索信息样式 */
+.web-search-info {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e6f7ff 100%);
+  border: 1px solid #91d5ff;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.web-search-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #1890ff;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.web-search-icon {
+  font-size: 14px;
+}
+
+.web-search-text {
+  color: #1890ff;
+}
+
+.web-search-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #91d5ff;
+}
+
+.web-search-source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: #ffffff;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #1890ff;
+  text-decoration: none;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.web-search-source-link:hover {
+  background: #e6f7ff;
+  border-color: #1890ff;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(24, 144, 255, 0.15);
+}
+
+.web-search-source-link:active {
+  transform: translateY(0);
 }
 </style>

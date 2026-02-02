@@ -130,10 +130,40 @@ public class SyncModelJob {
         // 提取提供商
         String provider = extractProvider(openRouterModel.getId());
 
+        // 判断是否国内模型
+        int isChina = isChinaModel(openRouterModel.getId()) ? 1 : 0;
+
+        // 判断是否支持多模态（图片输入）
+        int supportsMultimodal = 0;
+        if (openRouterModel.getArchitecture() != null
+                && openRouterModel.getArchitecture().getInputModalities() != null
+                && openRouterModel.getArchitecture().getInputModalities().contains("image")) {
+            supportsMultimodal = 1;
+        }
+
+        // 判断是否支持图片生成
+        int supportsImageGen = 0;
+        if (openRouterModel.getArchitecture() != null
+                && openRouterModel.getArchitecture().getOutputModalities() != null
+                && openRouterModel.getArchitecture().getOutputModalities().contains("image")) {
+            supportsImageGen = 1;
+        }
+
+        // 判断是否支持工具/函数调用（用于开启联网搜索等）
+        int supportsToolCalling = 0;
+        List<String> supportedParameters = openRouterModel.getSupportedParameters();
+        if (supportedParameters != null && !supportedParameters.isEmpty()) {
+            // 常见字段：tools / tool_choice / functions / function_call
+            boolean hasTools = supportedParameters.contains("tools")
+                    || supportedParameters.contains("tool_choice")
+                    || supportedParameters.contains("functions")
+                    || supportedParameters.contains("function_call");
+            supportsToolCalling = hasTools ? 1 : 0;
+        }
+
         // 转换价格（从每token转为每百万tokens）
         BigDecimal inputPrice = convertPrice(openRouterModel.getPricing().getPrompt());
         BigDecimal outputPrice = convertPrice(openRouterModel.getPricing().getCompletion());
-
 
         // 生成标签
         String[] tags = generateTags(openRouterModel);
@@ -152,12 +182,33 @@ public class SyncModelJob {
                 .inputPrice(inputPrice)
                 .outputPrice(outputPrice)
                 .recommended(0)
+                .isChina(isChina)
+                .supportsMultimodal(supportsMultimodal)
+                .supportsImageGen(supportsImageGen)
+                .supportsToolCalling(supportsToolCalling)
                 .tags(tagsJson)
                 .rawData(rawData)
+                .totalTokens(0L)
+                .totalCost(BigDecimal.ZERO)
                 .createTime(now)
                 .updateTime(now)
                 .isDelete(0)
                 .build();
+    }
+
+    /**
+     * 判断是否为国内模型
+     */
+    private boolean isChinaModel(String modelId) {
+        if (modelId == null || !modelId.contains("/")) {
+            return false;
+        }
+        String prefix = modelId.split("/")[0].toLowerCase();
+        return switch (prefix) {
+            case "qwen", "alibaba", "deepseek", "z-ai", "zhipu", "moonshotai",
+                    "baidu", "tencent", "bytedance", "bytedance-seed", "meituan" -> true;
+            default -> false;
+        };
     }
 
     /**

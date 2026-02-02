@@ -41,6 +41,18 @@ public class ModelQueryRequest extends PageRequest implements Serializable {
     @Schema(description = "是否只查询国内模型")
     private Boolean onlyChina;
 
+    /**
+     * 是否只查询支持图片生成的模型
+     */
+    @Schema(description = "是否只查询支持图片生成的模型")
+    private Boolean onlySupportsImageGen;
+
+    /**
+     * 是否只查询支持多模态的模型
+     */
+    @Schema(description = "是否只查询支持多模态的模型")
+    private Boolean onlySupportsMultimodal;
+
     private static final long serialVersionUID = 1L;
 }
 
