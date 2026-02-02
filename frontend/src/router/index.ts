@@ -29,6 +29,14 @@ const router = createRouter({
               /* webpackChunkName: "page-prompt-lab" */ '@/pages/PromptLabPage.vue'
             ),
         },
+        {
+          path: 'battle',
+          name: 'Battle匿名对比',
+          component: () =>
+            import(
+              /* webpackChunkName: "page-battle" */ '@/pages/BattlePage.vue'
+            ),
+        },
       ],
     },
     {

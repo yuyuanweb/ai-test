@@ -6,6 +6,7 @@ import com.yupi.template.common.DeleteRequest;
 import com.yupi.template.common.ResultUtils;
 import com.yupi.template.exception.ErrorCode;
 import com.yupi.template.exception.ThrowUtils;
+import com.yupi.template.model.dto.conversation.BattleRequest;
 import com.yupi.template.model.dto.conversation.ChatRequest;
 import com.yupi.template.model.dto.conversation.CreateConversationRequest;
 import com.yupi.template.model.dto.conversation.PromptLabRequest;
@@ -15,6 +16,7 @@ import com.yupi.template.model.dto.conversation.CodeModePromptLabRequest;
 import com.yupi.template.model.entity.Conversation;
 import com.yupi.template.model.entity.ConversationMessage;
 import com.yupi.template.model.entity.User;
+import com.yupi.template.model.vo.BattleModelMappingVO;
 import com.yupi.template.model.vo.StreamChunkVO;
 import com.yupi.template.ratelimit.RateLimit;
 import com.yupi.template.ratelimit.RateLimitType;
@@ -93,6 +95,22 @@ public class ConversationController {
         log.info("Side-by-Side stream request: user={}, models={}", 
                 loginUser.getId(), request.getModels());
         return conversationService.sideBySideStream(request, loginUser.getId());
+    }
+
+    /**
+     * Battle 匿名模型对比（流式响应）
+     */
+    @RateLimit(limitType = RateLimitType.USER, rate = 5, rateInterval = 60, message = "AI 对话请求过于频繁，请稍后再试")
+    @PostMapping(value = "/battle/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "Battle匿名模型对比(流式)")
+    public Flux<ServerSentEvent<StreamChunkVO>> battleStream(
+            @RequestBody BattleRequest request,
+            HttpServletRequest httpRequest
+    ) {
+        User loginUser = userService.getLoginUser(httpRequest);
+        log.info("Battle stream request: user={}, models={}", 
+                loginUser.getId(), request.getModels());
+        return conversationService.battleStream(request, loginUser.getId());
     }
 
     /**
@@ -201,5 +219,19 @@ public class ConversationController {
         User loginUser = userService.getLoginUser(httpRequest);
         boolean result = conversationService.deleteConversation(deleteRequest.getId().toString(), loginUser.getId());
         return ResultUtils.success(result);
+    }
+
+    /**
+     * 获取Battle模式的模型映射关系（揭晓答案）
+     */
+    @GetMapping("/battle/mapping")
+    @Operation(summary = "获取Battle模式模型映射关系（揭晓答案）")
+    public BaseResponse<BattleModelMappingVO> getBattleModelMapping(
+            @RequestParam String conversationId,
+            HttpServletRequest httpRequest
+    ) {
+        User loginUser = userService.getLoginUser(httpRequest);
+        BattleModelMappingVO mapping = conversationService.getBattleModelMapping(conversationId, loginUser.getId());
+        return ResultUtils.success(mapping);
     }
 }

@@ -77,6 +77,12 @@ declare namespace API {
     message?: string
   }
 
+  type BaseResponseBattleModelMappingVO = {
+    code?: number
+    data?: BattleModelMappingVO
+    message?: string
+  }
+
   type BaseResponseUser = {
     code?: number
     data?: User
@@ -106,6 +112,9 @@ declare namespace API {
     title?: string
     conversationType?: string
     models?: string
+    codePreviewEnabled?: boolean
+    isAnonymous?: boolean
+    modelMapping?: string
     totalTokens?: number
     totalCost?: number
     createTime?: string
@@ -154,6 +163,10 @@ declare namespace API {
   }
 
   type getConversationParams = {
+    conversationId: string
+  }
+
+  type getBattleModelMappingParams = {
     conversationId: string
   }
 
@@ -317,6 +330,22 @@ declare namespace API {
     conversationId?: string
     /** 是否使用流式响应 */
     stream?: boolean
+  }
+
+  type BattleRequest = {
+    /** 模型列表(2-8个) */
+    models?: string[]
+    /** 用户提示词 */
+    prompt?: string
+    /** 对话ID，多轮对话时传入 */
+    conversationId?: string
+    /** 是否使用流式响应 */
+    stream?: boolean
+  }
+
+  type BattleModelMappingVO = {
+    /** 匿名标识到真实模型名称的映射 */
+    mapping?: Record<string, string>
   }
 
   type testAiSimpleParams = {

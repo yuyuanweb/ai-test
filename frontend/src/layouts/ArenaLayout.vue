@@ -43,6 +43,9 @@
             <div v-if="conv.conversationType === 'prompt_lab'" class="conversation-type-icon">
               <ExperimentOutlined style="font-size: 12px; color: #8b5cf6;" />
             </div>
+            <div v-else-if="conv.conversationType === 'battle'" class="conversation-type-icon">
+              <TrophyOutlined style="font-size: 12px; color: #ff9800;" />
+            </div>
             <div v-else class="model-logos">
               <template v-for="(logo, idx) in getModelLogos(conv.models)" :key="idx">
                 <img
@@ -89,6 +92,9 @@
             <div v-if="conv.conversationType === 'prompt_lab'" class="conversation-type-icon">
               <ExperimentOutlined style="font-size: 12px; color: #8b5cf6;" />
             </div>
+            <div v-else-if="conv.conversationType === 'battle'" class="conversation-type-icon">
+              <TrophyOutlined style="font-size: 12px; color: #ff9800;" />
+            </div>
             <div v-else class="model-logos">
               <template v-for="(logo, idx) in getModelLogos(conv.models)" :key="idx">
                 <img
@@ -134,6 +140,9 @@
             <!-- 根据会话类型显示不同的图标（左侧，固定宽度区域内右对齐） -->
             <div v-if="conv.conversationType === 'prompt_lab'" class="conversation-type-icon">
               <ExperimentOutlined style="font-size: 12px; color: #8b5cf6;" />
+            </div>
+            <div v-else-if="conv.conversationType === 'battle'" class="conversation-type-icon">
+              <TrophyOutlined style="font-size: 12px; color: #ff9800;" />
             </div>
             <div v-else class="model-logos">
               <template v-for="(logo, idx) in getModelLogos(conv.models)" :key="idx">
@@ -241,7 +250,7 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { EditOutlined, LogoutOutlined, SwapOutlined, ExperimentOutlined, ThunderboltOutlined, UnorderedListOutlined, AppstoreOutlined } from '@ant-design/icons-vue'
+import { EditOutlined, LogoutOutlined, SwapOutlined, ExperimentOutlined, ThunderboltOutlined, UnorderedListOutlined, AppstoreOutlined, TrophyOutlined } from '@ant-design/icons-vue'
 import { useLoginUserStore } from '@/stores/loginUser'
 import { userLogout, getUserStatistics } from '@/api/userController'
 import { listConversations } from '@/api/conversationController'
@@ -382,6 +391,8 @@ const openConversation = (id: string, conversationType?: string, codePreviewEnab
     page = 'code-mode'
   } else if (conversationType === 'prompt_lab') {
     page = 'prompt-lab'
+  } else if (conversationType === 'battle') {
+    page = 'battle'
   }
   
   router.push(`/${page}?conversationId=${id}`)

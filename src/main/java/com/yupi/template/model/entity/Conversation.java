@@ -43,7 +43,7 @@ public class Conversation implements Serializable {
     private String title;
 
     /**
-     * 对话类型: side_by_side/prompt_lab/code_mode
+     * 对话类型: side_by_side/prompt_lab/code_mode/battle
      */
     @Column("conversationType")
     private String conversationType;
@@ -53,6 +53,18 @@ public class Conversation implements Serializable {
      */
     @Column("codePreviewEnabled")
     private Boolean codePreviewEnabled;
+
+    /**
+     * 是否为匿名模式（Battle模式）
+     */
+    @Column("isAnonymous")
+    private Boolean isAnonymous;
+
+    /**
+     * 模型匿名映射关系 (JSON格式，如：{"模型A": "openai/gpt-4o", "模型B": "anthropic/claude-3.5-sonnet"})
+     */
+    @Column("modelMapping")
+    private String modelMapping;
 
     /**
      * 参与的模型列表 (JSON格式)

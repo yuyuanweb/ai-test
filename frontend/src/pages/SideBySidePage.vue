@@ -17,6 +17,10 @@
             <ExperimentOutlined style="margin-right: 8px" />
             提示词实验
           </a-select-option>
+          <a-select-option value="battle">
+            <TrophyOutlined style="margin-right: 8px" />
+            匿名对比
+          </a-select-option>
         </a-select>
 
         <!-- 动态模型选择器 (1-8个) -->
@@ -295,6 +299,7 @@ import {
   SendOutlined,
   SwapOutlined,
   ExperimentOutlined,
+  TrophyOutlined,
   CopyOutlined,
   ExpandOutlined,
   ReloadOutlined,

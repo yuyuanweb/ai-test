@@ -1,6 +1,7 @@
 package com.yupi.template.service;
 
 import com.mybatisflex.core.paginate.Page;
+import com.yupi.template.model.dto.conversation.BattleRequest;
 import com.yupi.template.model.dto.conversation.ChatRequest;
 import com.yupi.template.model.dto.conversation.CreateConversationRequest;
 import com.yupi.template.model.dto.conversation.PromptLabRequest;
@@ -9,6 +10,7 @@ import com.yupi.template.model.dto.conversation.CodeModeRequest;
 import com.yupi.template.model.dto.conversation.CodeModePromptLabRequest;
 import com.yupi.template.model.entity.Conversation;
 import com.yupi.template.model.entity.ConversationMessage;
+import com.yupi.template.model.vo.BattleModelMappingVO;
 import com.yupi.template.model.vo.StreamChunkVO;
 import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.publisher.Flux;
@@ -48,6 +50,15 @@ public interface ConversationService {
      * @return 流式响应
      */
     Flux<ServerSentEvent<StreamChunkVO>> sideBySideStream(SideBySideRequest request, Long userId);
+
+    /**
+     * Battle 匿名模型对比 (流式响应)
+     *
+     * @param request 请求参数
+     * @param userId  用户ID
+     * @return 流式响应
+     */
+    Flux<ServerSentEvent<StreamChunkVO>> battleStream(BattleRequest request, Long userId);
 
     /**
      * Prompt Lab 单模型多提示词对比 (流式响应)
@@ -113,4 +124,13 @@ public interface ConversationService {
      * @return 是否成功
      */
     boolean deleteConversation(String conversationId, Long userId);
+
+    /**
+     * 获取Battle模式的模型映射关系（揭晓答案）
+     *
+     * @param conversationId 对话ID
+     * @param userId         用户ID
+     * @return 模型映射关系
+     */
+    BattleModelMappingVO getBattleModelMapping(String conversationId, Long userId);
 }

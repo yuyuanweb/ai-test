@@ -12,6 +12,7 @@ import com.yupi.template.guardrail.PromptGuardrail;
 import com.yupi.template.mapper.ConversationMapper;
 import com.yupi.template.mapper.ConversationMessageMapper;
 import com.yupi.template.mapper.ModelMapper;
+import com.yupi.template.model.dto.conversation.BattleRequest;
 import com.yupi.template.model.dto.conversation.ChatRequest;
 import com.yupi.template.model.dto.conversation.CreateConversationRequest;
 import com.yupi.template.model.dto.conversation.PromptLabRequest;
@@ -24,8 +25,6 @@ import com.yupi.template.model.enums.ConversationTypeEnum;
 import com.yupi.template.model.enums.MessageRoleEnum;
 import com.yupi.template.model.vo.StreamChunkVO;
 import com.yupi.template.service.ConversationService;
-import com.yupi.template.service.ModelService;
-import com.yupi.template.service.UserModelUsageService;
 import com.yupi.template.utils.CodeExtractor;
 import com.yupi.template.model.dto.code.CodeBlock;
 import jakarta.annotation.Resource;
@@ -47,11 +46,13 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 /**
  * 对话服务实现类
@@ -78,10 +79,10 @@ public class ConversationServiceImpl implements ConversationService {
     private ModelMapper modelMapper;
 
     @Resource
-    private ModelService modelService;
+    private com.yupi.template.service.ModelService modelService;
 
     @Resource
-    private UserModelUsageService userModelUsageService;
+    private com.yupi.template.service.UserModelUsageService userModelUsageService;
 
     @Override
     public String createConversation(CreateConversationRequest request, Long userId) {
@@ -111,6 +112,7 @@ public class ConversationServiceImpl implements ConversationService {
                 .title(title)
                 .conversationType(typeEnum.getValue())
                 .codePreviewEnabled(codePreviewEnabled)
+                .isAnonymous(false)
                 .models(JSONUtil.toJsonStr(request.getModels()))
                 .totalTokens(0)
                 .totalCost(BigDecimal.ZERO)
@@ -286,6 +288,208 @@ public class ConversationServiceImpl implements ConversationService {
     }
 
     @Override
+    public Flux<ServerSentEvent<StreamChunkVO>> battleStream(BattleRequest request, Long userId) {
+        // 1. 参数校验
+        ThrowUtils.throwIf(request == null, ErrorCode.PARAMS_ERROR);
+        ThrowUtils.throwIf(request.getPrompt() == null || request.getPrompt().trim().isEmpty(),
+                ErrorCode.PARAMS_ERROR, "提示词不能为空");
+        PromptGuardrail.validate(request.getPrompt());
+
+        // 2. 确定要对比的模型列表和映射关系
+        List<String> models;
+        Map<String, String> modelMapping;
+        String conversationId;
+        boolean codePreviewEnabled;
+        if (request.getConversationId() != null && !request.getConversationId().isEmpty()) {
+            // 已有对话：使用已保存的模型映射，不重新随机选择
+            conversationId = request.getConversationId();
+
+            // 直接使用 selectOneById 查询，确保查询所有字段
+            Conversation existingConversation = conversationMapper.selectOneById(conversationId);
+            ThrowUtils.throwIf(existingConversation == null, ErrorCode.NOT_FOUND_ERROR, "对话不存在");
+            ThrowUtils.throwIf(!existingConversation.getUserId().equals(userId), ErrorCode.NO_AUTH_ERROR, "无权访问该对话");
+            codePreviewEnabled=existingConversation.getCodePreviewEnabled();
+            // 解析已保存的模型映射
+            String modelMappingJson = existingConversation.getModelMapping();
+            log.info("Battle模式：查询到的 modelMapping={}", modelMappingJson);
+
+            if (modelMappingJson == null || modelMappingJson.trim().isEmpty()) {
+                log.error("Battle模式：对话 {} 的 modelMapping 为空，existingConversation={}",
+                        conversationId, JSONUtil.toJsonStr(existingConversation));
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "对话的模型映射不存在");
+            }
+
+            @SuppressWarnings("unchecked")
+            Map<String, String> parsedMapping = JSONUtil.toBean(modelMappingJson, Map.class);
+            modelMapping = parsedMapping;
+
+            // 从映射中提取模型列表
+            models = new ArrayList<>(modelMapping.values());
+            log.info("Battle模式：使用已有对话的模型映射，conversationId={}, 模型映射={}", conversationId, modelMapping);
+        } else {
+            // 新对话：随机选择模型并创建映射
+            models = request.getModels();
+            if (models == null || models.isEmpty()) {
+                // 获取所有模型列表
+                List<com.yupi.template.model.vo.ModelVO> allModels = modelService.getAllModels(userId);
+                if (allModels == null || allModels.size() < 2) {
+                    throw new BusinessException(ErrorCode.PARAMS_ERROR, "可用模型数量不足，无法进行Battle对比");
+                }
+
+                // 筛选出国内模型（isChina=true）
+                List<com.yupi.template.model.vo.ModelVO> chinaModels = allModels.stream()
+                        .filter(model -> model.getIsChina() != null && model.getIsChina())
+                        .collect(Collectors.toList());
+
+                List<com.yupi.template.model.vo.ModelVO> selectedModels;
+                if (chinaModels.size() >= 2) {
+                    // 如果国内模型数量>=2，从国内模型中随机选择2个
+                    Collections.shuffle(chinaModels);
+                    selectedModels = chinaModels.subList(0, 2);
+                    log.info("Battle模式：从{}个国内模型中随机选择2个", chinaModels.size());
+                } else if (chinaModels.size() == 1) {
+                    // 如果只有1个国内模型，选择它+1个其他模型
+                    Collections.shuffle(allModels);
+                    com.yupi.template.model.vo.ModelVO otherModel = allModels.stream()
+                            .filter(model -> !model.getId().equals(chinaModels.get(0).getId()))
+                            .findFirst()
+                            .orElse(null);
+                    if (otherModel == null) {
+                        throw new BusinessException(ErrorCode.PARAMS_ERROR, "可用模型数量不足，无法进行Battle对比");
+                    }
+                    selectedModels = java.util.Arrays.asList(chinaModels.get(0), otherModel);
+                    log.info("Battle模式：选择1个国内模型+1个其他模型");
+                } else {
+                    // 如果没有国内模型，从所有模型中随机选择2个
+                    Collections.shuffle(allModels);
+                    selectedModels = allModels.subList(0, 2);
+                    log.warn("Battle模式：未找到国内模型，从所有模型中随机选择2个");
+                }
+
+                models = selectedModels.stream()
+                        .map(com.yupi.template.model.vo.ModelVO::getId)
+                        .collect(Collectors.toList());
+                log.info("Battle模式：随机选择模型: {}", models);
+            } else if (models.size() < 2) {
+                throw new BusinessException(ErrorCode.PARAMS_ERROR, "Battle模式至少需要2个模型");
+            } else if (models.size() > 2) {
+                // 如果用户提供了超过2个模型，只使用前2个
+                models = models.subList(0, 2);
+                log.info("Battle模式：使用前2个模型: {}", models);
+            }
+
+            // 创建匿名标识映射（模型A、模型B）
+            modelMapping = new HashMap<>();
+            modelMapping.put("模型A", models.get(0));
+            modelMapping.put("模型B", models.get(1));
+
+
+            // 创建新对话
+            conversationId = IdUtil.randomUUID();
+              codePreviewEnabled = request.getCodePreviewEnabled() != null && request.getCodePreviewEnabled();
+            Conversation conversation = Conversation.builder()
+                    .id(conversationId)
+                    .userId(userId)
+                    .title(generateTitle(request.getPrompt()))
+                    .conversationType(ConversationTypeEnum.BATTLE.getValue())
+                    .codePreviewEnabled(codePreviewEnabled)
+                    .isAnonymous(true)
+                    .modelMapping(JSONUtil.toJsonStr(modelMapping))
+                    .models(JSONUtil.toJsonStr(models))
+                    .totalTokens(0)
+                    .totalCost(BigDecimal.ZERO)
+                    .createTime(LocalDateTime.now())
+                    .updateTime(LocalDateTime.now())
+                    .isDelete(0)
+                    .build();
+            conversationMapper.insert(conversation);
+            log.info("Battle模式：创建新对话，conversationId={}, 模型映射={}, codePreviewEnabled={}",
+                    conversationId, modelMapping, codePreviewEnabled);
+        }
+
+        // 5. 保存用户消息
+        int userMessageIndex = saveUserMessage(conversationId, userId, request.getPrompt());
+        int assistantMessageIndex = userMessageIndex + 1;
+
+        log.info("Battle模式：conversationId={}, codePreviewEnabled={}", conversationId, codePreviewEnabled);
+
+        // 6. 并行调用两个模型，使用匿名标识
+        List<Flux<ServerSentEvent<StreamChunkVO>>> modelFluxes = new ArrayList<>();
+        for (int i = 0; i < models.size(); i++) {
+            String realModelName = models.get(i);
+            String anonymousName = i == 0 ? "模型A" : "模型B";
+
+            log.info("Battle模式：创建模型流，匿名标识={}, 真实模型={}, codePreviewEnabled={}", 
+                    anonymousName, realModelName, codePreviewEnabled);
+
+            // 根据 codePreviewEnabled 决定使用哪个方法
+            Flux<ServerSentEvent<StreamChunkVO>> modelFlux;
+            if (codePreviewEnabled) {
+                // 代码模式：使用系统提示词
+                modelFlux = createModelStreamWithSystemPrompt(
+                        conversationId,
+                        userId,
+                        realModelName,
+                        request.getPrompt(),
+                        ConversationConstant.CODE_MODE_SYSTEM_PROMPT,
+                        assistantMessageIndex
+                );
+            } else {
+                // 普通模式：不使用系统提示词
+                modelFlux = createModelStream(
+                        conversationId,
+                        userId,
+                        realModelName,
+                        request.getPrompt(),
+                        null,
+                        assistantMessageIndex
+                );
+            }
+            
+            modelFlux = modelFlux.map(event -> {
+                // 将真实模型名替换为匿名标识
+                if (event.data() != null) {
+                    StreamChunkVO chunk = event.data();
+                    if (realModelName.equals(chunk.getModelName())) {
+                        StreamChunkVO anonymousChunk = StreamChunkVO.builder()
+                                .conversationId(chunk.getConversationId())
+                                .modelName(anonymousName)
+                                .variantIndex(chunk.getVariantIndex())
+                                .content(chunk.getContent())
+                                .fullContent(chunk.getFullContent())
+                                .inputTokens(chunk.getInputTokens())
+                                .outputTokens(chunk.getOutputTokens())
+                                .totalTokens(chunk.getTotalTokens())
+                                .elapsedMs(chunk.getElapsedMs())
+                                .responseTimeMs(chunk.getResponseTimeMs())
+                                .cost(chunk.getCost())
+                                .done(chunk.getDone())
+                                .error(chunk.getError())
+                                .hasError(chunk.getHasError())
+                                .reasoning(chunk.getReasoning())
+                                .hasReasoning(chunk.getHasReasoning())
+                                .thinkingTime(chunk.getThinkingTime())
+                                .messageIndex(chunk.getMessageIndex())
+                                .codeBlocks(chunk.getCodeBlocks())
+                                .hasCodeBlocks(chunk.getHasCodeBlocks())
+                                .build();
+                        return ServerSentEvent.<StreamChunkVO>builder()
+                                .data(anonymousChunk)
+                                .build();
+                    }
+                }
+                return event;
+            });
+            modelFluxes.add(modelFlux);
+        }
+
+        // 8. 合并所有模型的流
+        @SuppressWarnings("unchecked")
+        Flux<ServerSentEvent<StreamChunkVO>> mergedFlux = Flux.merge(2, modelFluxes.toArray(new Flux[0]));
+        return mergedFlux;
+    }
+
+    @Override
     public Flux<ServerSentEvent<StreamChunkVO>> codeModePromptLabStream(CodeModePromptLabRequest request, Long userId) {
         // 1. 参数校验
         validateCodeModePromptLabRequest(request);
@@ -383,6 +587,87 @@ public class ConversationServiceImpl implements ConversationService {
         conversation.setIsDelete(1);
         conversation.setUpdateTime(LocalDateTime.now());
         return conversationMapper.update(conversation) > 0;
+    }
+
+    @Override
+    public com.yupi.template.model.vo.BattleModelMappingVO getBattleModelMapping(String conversationId, Long userId) {
+        // 验证对话是否属于当前用户
+        Conversation conversation = getConversation(conversationId, userId);
+        ThrowUtils.throwIf(conversation == null, ErrorCode.NOT_FOUND_ERROR, "对话不存在");
+        
+        // 检查是否为Battle模式（isAnonymous=true 或 conversationType=battle）
+        Boolean isAnonymous = conversation.getIsAnonymous();
+        String conversationType = conversation.getConversationType();
+        boolean isBattleMode = (isAnonymous != null && isAnonymous) 
+                || ConversationTypeEnum.BATTLE.getValue().equals(conversationType);
+        ThrowUtils.throwIf(!isBattleMode, ErrorCode.PARAMS_ERROR, "该对话不是Battle模式");
+
+        // 解析模型映射关系
+        String modelMappingJson = conversation.getModelMapping();
+        Map<String, String> mapping = null;
+        
+        if (modelMappingJson != null && !modelMappingJson.trim().isEmpty()) {
+            // 如果存在 modelMapping，直接解析
+            @SuppressWarnings("unchecked")
+            Map<String, String> parsedMapping = JSONUtil.toBean(modelMappingJson, Map.class);
+            mapping = parsedMapping;
+        } else {
+            // 如果 modelMapping 不存在，尝试从 models 字段或消息记录中恢复
+            log.warn("Battle模式对话的modelMapping为空，尝试恢复映射关系，conversationId={}", conversationId);
+            
+            // 方法1：从 models 字段恢复（假设是2个模型，按顺序映射为模型A和模型B）
+            String modelsJson = conversation.getModels();
+            if (modelsJson != null && !modelsJson.trim().isEmpty()) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    List<String> models = JSONUtil.toBean(modelsJson, List.class);
+                    if (models != null && models.size() >= 2) {
+                        mapping = new HashMap<>();
+                        mapping.put("模型A", models.get(0));
+                        mapping.put("模型B", models.get(1));
+                        log.info("从models字段恢复映射关系: {}", mapping);
+                    }
+                } catch (Exception e) {
+                    log.warn("从models字段恢复映射关系失败", e);
+                }
+            }
+            
+            // 方法2：如果方法1失败，从消息记录中获取模型信息
+            if (mapping == null || mapping.isEmpty()) {
+                try {
+                    List<ConversationMessage> messages = getConversationMessages(conversationId, userId);
+                    List<String> modelNames = messages.stream()
+                            .filter(msg -> MessageRoleEnum.ASSISTANT.getValue().equals(msg.getRole()))
+                            .map(ConversationMessage::getModelName)
+                            .filter(modelName -> modelName != null && !modelName.trim().isEmpty())
+                            .distinct()
+                            .collect(Collectors.toList());
+                    
+                    if (modelNames.size() >= 2) {
+                        mapping = new HashMap<>();
+                        mapping.put("模型A", modelNames.get(0));
+                        mapping.put("模型B", modelNames.get(1));
+                        log.info("从消息记录恢复映射关系: {}", mapping);
+                        
+                        // 保存恢复的映射关系到数据库
+                        conversation.setModelMapping(JSONUtil.toJsonStr(mapping));
+                        conversation.setUpdateTime(LocalDateTime.now());
+                        conversationMapper.update(conversation);
+                    }
+                } catch (Exception e) {
+                    log.warn("从消息记录恢复映射关系失败", e);
+                }
+            }
+            
+            // 如果仍然无法恢复，抛出异常
+            if (mapping == null || mapping.isEmpty()) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "模型映射关系不存在，且无法从对话数据中恢复");
+            }
+        }
+        
+        return com.yupi.template.model.vo.BattleModelMappingVO.builder()
+                .mapping(mapping)
+                .build();
     }
 
     /**
@@ -716,6 +1001,7 @@ public class ConversationServiceImpl implements ConversationService {
                 .title(generateTitle(prompt))
                 .conversationType(conversationType.getValue())
                 .codePreviewEnabled(codePreviewEnabled)
+                .isAnonymous(false)
                 .models(JSONUtil.toJsonStr(models))
                 .totalTokens(0)
                 .totalCost(BigDecimal.ZERO)

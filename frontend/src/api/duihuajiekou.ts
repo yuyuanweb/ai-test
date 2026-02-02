@@ -122,3 +122,32 @@ export async function sideBySideStream(
     ...(options || {}),
   })
 }
+
+/** Battle匿名模型对比(流式) POST /conversation/battle/stream */
+export async function battleStream(
+  body: API.BattleRequest,
+  options?: { [key: string]: any }
+) {
+  return request<API.ServerSentEventStreamChunkVO[]>('/conversation/battle/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
+    ...(options || {}),
+  })
+}
+
+/** 获取Battle模式模型映射关系（揭晓答案） GET /conversation/battle/mapping */
+export async function getBattleModelMapping(
+  params: API.getBattleModelMappingParams,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseBattleModelMappingVO>('/conversation/battle/mapping', {
+    method: 'GET',
+    params: {
+      ...params,
+    },
+    ...(options || {}),
+  })
+}

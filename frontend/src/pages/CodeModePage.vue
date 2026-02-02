@@ -30,7 +30,40 @@
             :class="{ active: conv.id === currentConversationId }"
             @click="openConversation(conv.id)"
           >
-            <CodeOutlined class="item-icon" />
+            <!-- 根据会话类型显示不同的图标 -->
+            <div v-if="conv.conversationType === 'prompt_lab'" class="conversation-type-icon">
+              <ExperimentOutlined style="font-size: 12px; color: #8b5cf6;" />
+            </div>
+            <div v-else-if="conv.isAnonymous || conv.conversationType === 'battle'" class="conversation-type-icon">
+              <TrophyOutlined style="font-size: 12px; color: #ff9800;" />
+            </div>
+            <div v-else class="model-logos">
+              <template v-for="(logo, idx) in getModelLogos(conv.models)" :key="idx">
+                <img
+                  v-if="!logo.isMore"
+                  :src="logo.url"
+                  :alt="logo.alt"
+                  class="model-logo"
+                />
+                <a-popover v-else placement="right" trigger="hover">
+                  <template #content>
+                    <div class="all-models-popup">
+                      <div
+                        v-for="(allLogo, allIdx) in getAllModelLogos(conv.models)"
+                        :key="allIdx"
+                        class="popup-model-item"
+                      >
+                        <img :src="allLogo.url" :alt="allLogo.alt" class="popup-model-logo" />
+                        <span class="popup-model-name">{{ allLogo.name }}</span>
+                      </div>
+                    </div>
+                  </template>
+                  <span class="more-models">
+                    {{ logo.alt }}
+                  </span>
+                </a-popover>
+              </template>
+            </div>
             <span class="history-title">{{ conv.title || '无标题对话' }}</span>
           </div>
         </div>
@@ -45,7 +78,40 @@
             :class="{ active: conv.id === currentConversationId }"
             @click="openConversation(conv.id)"
           >
-            <CodeOutlined class="item-icon" />
+            <!-- 根据会话类型显示不同的图标 -->
+            <div v-if="conv.conversationType === 'prompt_lab'" class="conversation-type-icon">
+              <ExperimentOutlined style="font-size: 12px; color: #8b5cf6;" />
+            </div>
+            <div v-else-if="conv.isAnonymous || conv.conversationType === 'battle'" class="conversation-type-icon">
+              <TrophyOutlined style="font-size: 12px; color: #ff9800;" />
+            </div>
+            <div v-else class="model-logos">
+              <template v-for="(logo, idx) in getModelLogos(conv.models)" :key="idx">
+                <img
+                  v-if="!logo.isMore"
+                  :src="logo.url"
+                  :alt="logo.alt"
+                  class="model-logo"
+                />
+                <a-popover v-else placement="right" trigger="hover">
+                  <template #content>
+                    <div class="all-models-popup">
+                      <div
+                        v-for="(allLogo, allIdx) in getAllModelLogos(conv.models)"
+                        :key="allIdx"
+                        class="popup-model-item"
+                      >
+                        <img :src="allLogo.url" :alt="allLogo.alt" class="popup-model-logo" />
+                        <span class="popup-model-name">{{ allLogo.name }}</span>
+                      </div>
+                    </div>
+                  </template>
+                  <span class="more-models">
+                    {{ logo.alt }}
+                  </span>
+                </a-popover>
+              </template>
+            </div>
             <span class="history-title">{{ conv.title || '无标题对话' }}</span>
           </div>
         </div>
@@ -59,7 +125,40 @@
             :class="{ active: conv.id === currentConversationId }"
             @click="openConversation(conv.id)"
           >
-            <CodeOutlined class="item-icon" />
+            <!-- 根据会话类型显示不同的图标 -->
+            <div v-if="conv.conversationType === 'prompt_lab'" class="conversation-type-icon">
+              <ExperimentOutlined style="font-size: 12px; color: #8b5cf6;" />
+            </div>
+            <div v-else-if="conv.isAnonymous || conv.conversationType === 'battle'" class="conversation-type-icon">
+              <TrophyOutlined style="font-size: 12px; color: #ff9800;" />
+            </div>
+            <div v-else class="model-logos">
+              <template v-for="(logo, idx) in getModelLogos(conv.models)" :key="idx">
+                <img
+                  v-if="!logo.isMore"
+                  :src="logo.url"
+                  :alt="logo.alt"
+                  class="model-logo"
+                />
+                <a-popover v-else placement="right" trigger="hover">
+                  <template #content>
+                    <div class="all-models-popup">
+                      <div
+                        v-for="(allLogo, allIdx) in getAllModelLogos(conv.models)"
+                        :key="allIdx"
+                        class="popup-model-item"
+                      >
+                        <img :src="allLogo.url" :alt="allLogo.alt" class="popup-model-logo" />
+                        <span class="popup-model-name">{{ allLogo.name }}</span>
+                      </div>
+                    </div>
+                  </template>
+                  <span class="more-models">
+                    {{ logo.alt }}
+                  </span>
+                </a-popover>
+              </template>
+            </div>
             <span class="history-title">{{ conv.title || '无标题对话' }}</span>
           </div>
         </div>
@@ -95,13 +194,24 @@
               <ExperimentOutlined style="margin-right: 8px" />
               提示词实验
             </a-select-option>
+            <a-select-option value="battle">
+              <TrophyOutlined style="margin-right: 8px" />
+              匿名对比
+            </a-select-option>
           </a-select>
         </div>
 
         <!-- 模型选择器 - 第二行 -->
         <div class="models-selector">
+          <!-- Battle模式：显示匿名标识（顶部始终只显示匿名标识，不显示真实模型名） -->
+          <template v-if="currentMode === 'battle'">
+            <div class="anonymous-model-tag">模型A</div>
+            <span class="vs-label">vs</span>
+            <div class="anonymous-model-tag">模型B</div>
+          </template>
+
           <!-- 模型对比模式：多个模型选择器 -->
-          <template v-if="currentMode === 'model-compare'">
+          <template v-else-if="currentMode === 'model-compare'">
             <template v-for="(model, index) in selectedModels" :key="index">
               <span v-if="index > 0" class="vs-label">vs</span>
               <a-select
@@ -114,19 +224,19 @@
                 :loading="loadingModels"
               />
             </template>
-            
-            <a-button 
-              v-if="selectedModels.length < 8" 
-              type="dashed" 
+
+            <a-button
+              v-if="selectedModels.length < 8"
+              type="dashed"
               size="small"
               @click="addModel"
               style="flex-shrink: 0;"
             >
               +
             </a-button>
-            <a-button 
-              v-if="selectedModels.length > 1" 
-              type="dashed" 
+            <a-button
+              v-if="selectedModels.length > 1"
+              type="dashed"
               size="small"
               danger
               @click="removeModel"
@@ -157,7 +267,7 @@
       <div v-if="messages.length === 0" class="welcome-view">
         <h1 class="main-title">你想做什么？</h1>
         <p class="sub-title">描述你想创建的网站或应用...</p>
-        
+
         <!-- 快捷示例 -->
         <div class="quick-examples">
           <button class="example-btn" @click="useExample('创建一个精美的餐厅菜单页面，使用卡片布局展示菜品，包含图片、名称、描述和价格')">
@@ -196,18 +306,24 @@
           <!-- AI回答 - 只显示文本描述，不显示代码 -->
           <div v-if="msg.type === 'assistant'" class="ai-msg">
             <div class="ai-responses">
-              <div 
-                v-for="(resp, respIndex) in msg.responses" 
+              <div
+                v-for="(resp, respIndex) in msg.responses"
                 :key="respIndex"
                 class="response-item"
               >
                 <div class="response-header">
-                  <img 
-                    :src="getProviderIcon(resp.modelName)" 
-                    :alt="getModelName(resp.modelName)"
+                  <img
+                    v-if="isMessageRevealed(msg) && (getRealModelName(resp.modelName) || resp.realModelName)"
+                    :src="getProviderIcon(getRealModelName(resp.modelName) || resp.realModelName || '')"
+                    :alt="getModelName(getRealModelName(resp.modelName) || resp.realModelName || '')"
                     class="model-icon"
                   />
-                  <span class="model-name">{{ getModelName(resp.modelName) }}</span>
+                  <span class="model-name">
+                    {{ resp.modelName }}
+                    <span v-if="isMessageRevealed(msg) && (getRealModelName(resp.modelName) || resp.realModelName)" class="real-model-name">
+                      ({{ getModelName(getRealModelName(resp.modelName) || resp.realModelName || '') }})
+                    </span>
+                  </span>
                   <div class="stats">
                     <span v-if="resp.responseTimeMs">{{ (resp.responseTimeMs / 1000).toFixed(2) }}s</span>
                     <span v-if="resp.cost">${{ resp.cost.toFixed(4) }}</span>
@@ -242,7 +358,7 @@
                     </div>
                     <!-- 代码生成中 - 显示折叠的代码块 + 动画 -->
                     <div v-if="hasCodeContent(resp.fullContent || '')" class="code-block-container generating">
-                      <div 
+                      <div
                         class="code-block-header generating"
                         @click="toggleCodeBlock(resp.modelName, 0)"
                       >
@@ -262,7 +378,7 @@
                         </div>
                       </div>
                       <!-- 展开显示生成中的代码 -->
-                      <div 
+                      <div
                         v-show="isCodeBlockExpanded(resp.modelName, 0)"
                         class="code-block-content generating"
                         :ref="el => { if (el) highlightGeneratingCode(el as HTMLElement, resp.modelName) }"
@@ -293,13 +409,13 @@
                       <MarkdownRenderer :content="getTextWithoutCode(resp.fullContent || '')" />
                     </div>
                     <!-- 代码块 -->
-                    <div 
-                      v-for="(block, idx) in resp.codeBlocks" 
-                      :key="idx" 
+                    <div
+                      v-for="(block, idx) in resp.codeBlocks"
+                      :key="idx"
                       class="code-block-container"
                       ref="codeBlockRefs"
                     >
-                      <div 
+                      <div
                         class="code-block-header"
                         @click="toggleCodeBlock(resp.modelName, idx)"
                       >
@@ -309,8 +425,8 @@
                           <span class="file-size">{{ formatCodeSize(block.code) }}</span>
                         </div>
                         <div class="code-block-actions">
-                          <a-button 
-                            type="text" 
+                          <a-button
+                            type="text"
                             size="small"
                             @click.stop="copyCode(block.code)"
                             title="复制代码"
@@ -323,7 +439,7 @@
                           </span>
                         </div>
                       </div>
-                      <div 
+                      <div
                         v-show="isCodeBlockExpanded(resp.modelName, idx)"
                         class="code-block-content"
                       >
@@ -349,7 +465,7 @@
                 </div>
               </div>
             </div>
-            
+
             <!-- 评分按钮 - 只在所有响应完成后显示 -->
             <div
               v-if="msg.type === 'assistant' && msg.responses && msg.responses.every((r: any) => r.done) && shouldShowRating(msg, idx)"
@@ -368,7 +484,20 @@
                     {{ getModelName(resp.modelName) }} 更好
                   </button>
                 </template>
-                
+
+                <!-- Battle模式：显示"X更好"按钮（使用匿名标识） -->
+                <template v-else-if="currentMode === 'battle'">
+                  <button
+                    v-for="(resp, respIdx) in msg.responses"
+                    :key="`model-better-${respIdx}`"
+                    class="rating-btn"
+                    :class="{ 'rating-selected': isModelSelected(msg, resp.modelName, respIdx) }"
+                    @click="handleRating(idx, 'model_better', resp.modelName)"
+                  >
+                    {{ resp.modelName }} 更好
+                  </button>
+                </template>
+
                 <!-- 提示词实验模式：显示"变体X更好"按钮 -->
                 <template v-else-if="currentMode === 'prompt-experiment'">
                   <button
@@ -381,7 +510,7 @@
                     变体 {{ (variantMsg.variantIndex !== undefined ? variantMsg.variantIndex : 0) + 1 }} 更好
                   </button>
                 </template>
-                
+
                 <button
                   class="rating-btn"
                   :class="{ 'rating-selected': msg.rating?.ratingType === 'tie' }"
@@ -507,6 +636,33 @@
             {{ isLoading ? '运行中...' : '开始实验' }}
           </button>
         </div>
+
+        <!-- Battle模式：普通输入框 -->
+        <div v-else-if="currentMode === 'battle'" class="input-card">
+          <textarea
+            v-model="userInput"
+            :placeholder="isExistingConversation ? '继续对话...' : '输入你的问题...'"
+            :disabled="isLoading"
+            @keydown.enter.exact.prevent="sendMessage"
+            class="text-input"
+          ></textarea>
+
+          <div class="bottom-bar">
+            <div class="left-tools">
+              <button class="tool-icon code-mode-active" title="代码模式已启用">
+                <CodeOutlined />
+              </button>
+            </div>
+
+            <button
+              class="send-icon"
+              :disabled="!canSend"
+              @click="sendMessage"
+            >
+              <SendOutlined />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -518,26 +674,26 @@
           <div class="tabs-left">
             <!-- 模型对比模式：显示模型tab -->
             <template v-if="currentMode === 'model-compare'">
-              <div 
-                v-for="(model, index) in selectedModels" 
+              <div
+                v-for="(model, index) in selectedModels"
                 :key="index"
                 class="tab-item"
                 :class="{ active: activePreviewTab === index }"
                 @click="activePreviewTab = index"
               >
-                <img 
-                  :src="getProviderIcon(model)" 
+                <img
+                  :src="getProviderIcon(model)"
                   :alt="getModelName(model)"
                   class="tab-icon"
                 />
                 <span class="tab-name">{{ getModelName(model) }}</span>
               </div>
             </template>
-            
+
             <!-- 提示词实验模式：显示变体tab -->
             <template v-else-if="currentMode === 'prompt-experiment'">
-              <div 
-                v-for="(variantIndex, index) in getCurrentVariants()" 
+              <div
+                v-for="(variantIndex, index) in getCurrentVariants()"
                 :key="variantIndex"
                 class="tab-item"
                 :class="{ active: activePreviewTab === variantIndex }"
@@ -546,11 +702,24 @@
                 <span class="tab-name">变体 {{ variantIndex + 1 }}</span>
               </div>
             </template>
+
+            <!-- Battle模式：显示匿名模型tab -->
+            <template v-else-if="currentMode === 'battle'">
+              <div
+                v-for="(resp, index) in getBattleResponses()"
+                :key="index"
+                class="tab-item"
+                :class="{ active: activePreviewTab === index }"
+                @click="activePreviewTab = index"
+              >
+                <span class="tab-name">{{ resp.modelName || `模型${String.fromCharCode(65 + index)}` }}</span>
+              </div>
+            </template>
           </div>
           <div class="tabs-actions">
-            <a-button 
+            <a-button
               v-if="currentPreviewHtml"
-              type="primary" 
+              type="primary"
               size="small"
               @click="downloadHtml"
               title="下载HTML文件"
@@ -666,10 +835,11 @@ import {
   ExperimentOutlined,
   ExpandOutlined,
   ThunderboltOutlined,
+  TrophyOutlined
 } from '@ant-design/icons-vue'
 import { createPostSSE } from '@/utils/sseClient'
 import { API_BASE_URL } from '@/config/env'
-import { listConversations, getConversation, getConversationMessages } from '@/api/conversationController'
+import { listConversations, getConversation, getConversationMessages, getBattleModelMapping } from '@/api/conversationController'
 import { listModels, type ModelVO } from '@/api/modelController'
 import { addRating, getRating, getRatingsByConversationId, type RatingVO } from '@/api/ratingController'
 import { optimizePrompt, type PromptOptimizationVO } from '@/api/promptOptimizationController'
@@ -701,7 +871,11 @@ const route = useRoute()
 const loginUserStore = useLoginUserStore()
 const loginUser = computed(() => loginUserStore.loginUser)
 
-const currentMode = ref<'model-compare' | 'prompt-experiment'>('model-compare')
+const currentMode = ref<'model-compare' | 'prompt-experiment' | 'battle'>('model-compare')
+const revealed = ref(false)
+const modelMapping = ref<Record<string, string>>({})
+// 记录每个消息轮次的揭晓状态（messageIndex -> boolean）
+const revealedMessageIndexes = ref<Set<number>>(new Set())
 const selectedModels = ref<string[]>([])
 const selectedModel = ref<string>()
 const variants = ref<string[]>(['', ''])
@@ -730,9 +904,59 @@ const hasMore = ref(true)
 const loading = ref(false)
 const historyAreaRef = ref<HTMLElement | null>(null)
 
+const isExistingConversation = computed(() => {
+  return !!currentConversationId.value
+})
+
+const allResponsesDone = computed(() => {
+  if (messages.value.length === 0) return false
+  const lastAssistantMsg = messages.value.filter(m => m.type === 'assistant').pop()
+  if (!lastAssistantMsg || !lastAssistantMsg.responses) return false
+  return lastAssistantMsg.responses.length >= 2 && lastAssistantMsg.responses.every((r: any) => r.done)
+})
+
+// 判断某个消息轮次是否已揭晓
+const isMessageRevealed = (msg: Msg): boolean => {
+  if (!msg || msg.type !== 'assistant' || msg.messageIndex === undefined) {
+    return false
+  }
+  // 如果该消息轮次在revealedMessageIndexes中，说明已揭晓
+  return revealedMessageIndexes.value.has(msg.messageIndex)
+}
+
+const getRealModelName = (anonymousName: string): string | undefined => {
+  return modelMapping.value[anonymousName]
+}
+
+const getBattleResponses = () => {
+  if (messages.value.length === 0) return []
+  const lastAssistantMsg = messages.value.filter(m => m.type === 'assistant').pop()
+  if (!lastAssistantMsg || !lastAssistantMsg.responses) return []
+  return lastAssistantMsg.responses
+}
+
+const ensureBattleModelMapping = async (conversationId: string) => {
+  if (!conversationId) {
+    return
+  }
+  if (modelMapping.value && Object.keys(modelMapping.value).length > 0) {
+    return
+  }
+  try {
+    const res: any = await getBattleModelMapping({ conversationId })
+    if (res.data && res.data.code === 0 && res.data.data) {
+      modelMapping.value = res.data.data.mapping || {}
+    }
+  } catch (error) {
+    console.error('加载 Battle 模型映射失败:', error)
+  }
+}
+
 const canSend = computed(() => {
   if (currentMode.value === 'model-compare') {
     return userInput.value.trim() && selectedModels.value.length >= 1 && !isLoading.value
+  } else if (currentMode.value === 'battle') {
+    return userInput.value.trim() && !isLoading.value
   }
   return false
 })
@@ -754,7 +978,7 @@ const getCurrentVariants = () => {
   if (currentMode.value !== 'prompt-experiment') {
     return []
   }
-  
+
   // 从消息中提取所有变体索引
   const variantIndices = new Set<number>()
   messages.value.forEach(msg => {
@@ -768,7 +992,7 @@ const getCurrentVariants = () => {
       })
     }
   })
-  
+
   // 如果没有从消息中找到变体，使用输入框中的变体数量
   if (variantIndices.size === 0) {
     const indices = variants.value.filter(v => v.trim()).map((_, idx) => idx)
@@ -778,7 +1002,7 @@ const getCurrentVariants = () => {
     }
     return indices
   }
-  
+
   const sortedIndices = Array.from(variantIndices).sort((a, b) => a - b)
   // 如果activePreviewTab不在有效范围内，重置为第一个变体
   if (sortedIndices.length > 0 && !sortedIndices.includes(activePreviewTab.value)) {
@@ -792,13 +1016,13 @@ const currentPreviewHtml = computed(() => {
   console.log('🔍 [预览计算] messages总数:', messages.value.length)
   console.log('🔍 [预览计算] 当前模式:', currentMode.value)
   console.log('🔍 [预览计算] activePreviewTab:', activePreviewTab.value)
-  
+
   // 提示词实验模式：根据变体索引查找对应的消息
   if (currentMode.value === 'prompt-experiment') {
     // 查找所有包含指定变体索引的assistant消息（从后往前查找，找到最新的）
     const targetVariantIndex = activePreviewTab.value
     console.log('🔍 [预览计算] 查找变体', targetVariantIndex, '的HTML')
-    
+
     // 先打印所有消息的变体索引，方便调试
     console.log('🔍 [预览计算] 所有消息的变体索引:')
     messages.value.forEach((msg, idx) => {
@@ -813,7 +1037,7 @@ const currentPreviewHtml = computed(() => {
         })
       }
     })
-    
+
     for (let i = messages.value.length - 1; i >= 0; i--) {
       const msg = messages.value[i]
       if (msg.type === 'assistant' && msg.responses) {
@@ -824,7 +1048,7 @@ const currentPreviewHtml = computed(() => {
           console.log(`🔍 [预览计算] 检查响应: variantIndex=${rVariantIndex}, target=${targetVariantIndex}, match=${match}`)
           return match
         })
-        
+
         if (response) {
           console.log('🔍 [预览计算] 找到变体', targetVariantIndex, '的响应:', {
             variantIndex: response.variantIndex,
@@ -832,14 +1056,14 @@ const currentPreviewHtml = computed(() => {
             codeBlocksCount: response.codeBlocks?.length || 0,
             codeBlocks: response.codeBlocks
           })
-          
+
           if (response.codeBlocks && response.codeBlocks.length > 0) {
             console.log('🔍 [预览计算] 代码块列表:', response.codeBlocks.map((b: any) => ({
               language: b.language,
               codeLength: b.code?.length || 0,
               sanitizedHtmlLength: b.sanitizedHtml?.length || 0
             })))
-            
+
             const htmlBlock = response.codeBlocks.find((b: any) => b.language === 'html')
             if (htmlBlock) {
               const html = htmlBlock.code || htmlBlock.sanitizedHtml || ''
@@ -861,34 +1085,34 @@ const currentPreviewHtml = computed(() => {
     console.log('❌ [预览计算] 未找到变体', targetVariantIndex, '的HTML')
     return ''
   }
-  
-  // 模型对比模式：原有逻辑
+
+  // 模型对比模式和Battle模式：使用相同的逻辑
   const lastMsg = messages.value[messages.value.length - 1]
   if (!lastMsg) {
     console.log('❌ [预览计算] 没有消息')
     return ''
   }
-  
+
   console.log('🔍 [预览计算] 最后一条消息类型:', lastMsg.type)
-  
+
   if (lastMsg.type !== 'assistant') {
     console.log('❌ [预览计算] 不是assistant消息')
     return ''
   }
-  
+
   if (!lastMsg.responses) {
     console.log('❌ [预览计算] 没有responses')
     return ''
   }
-  
+
   console.log('🔍 [预览计算] responses数量:', lastMsg.responses.length)
-  
+
   const currentResponse = lastMsg.responses[activePreviewTab.value]
   if (!currentResponse) {
     console.log('❌ [预览计算] 当前tab没有响应', activePreviewTab.value)
     return ''
   }
-  
+
   console.log('🔍 [预览计算] 当前响应详情:', {
     modelName: currentResponse.modelName,
     done: currentResponse.done,
@@ -898,17 +1122,17 @@ const currentPreviewHtml = computed(() => {
     codeBlocksCount: currentResponse.codeBlocks?.length || 0,
     codeBlocks内容: currentResponse.codeBlocks
   })
-  
+
   if (!currentResponse.codeBlocks) {
     console.log('❌ [预览计算] codeBlocks是null或undefined')
     return ''
   }
-  
+
   if (currentResponse.codeBlocks.length === 0) {
     console.log('❌ [预览计算] codeBlocks是空数组')
     return ''
   }
-  
+
   console.log('🔍 [预览计算] 遍历codeBlocks查找HTML:')
   currentResponse.codeBlocks.forEach((block: any, index: number) => {
     console.log(`  - Block ${index}:`, {
@@ -917,40 +1141,40 @@ const currentPreviewHtml = computed(() => {
       sanitizedHtmlLength: block.sanitizedHtml?.length || 0
     })
   })
-  
+
   const htmlBlock = currentResponse.codeBlocks.find((b: any) => b.language === 'html')
   if (!htmlBlock) {
     console.log('❌ [预览计算] 没有找到language=html的代码块')
     console.log('   所有语言类型:', currentResponse.codeBlocks.map((b: any) => b.language))
     return ''
   }
-  
+
   const html = htmlBlock.code || htmlBlock.sanitizedHtml || ''
   console.log('✅ [预览计算] 找到HTML代码块！')
   console.log('   - code长度:', htmlBlock.code?.length || 0)
   console.log('   - sanitizedHtml长度:', htmlBlock.sanitizedHtml?.length || 0)
   console.log('   - 最终使用的HTML长度:', html.length)
   console.log('   - HTML开头:', html.substring(0, 200))
-  
+
   return html
 })
 
 const loadModels = async (searchText?: string) => {
   try {
     loadingModels.value = true
-    const res: any = await listModels({ 
-      pageNum: 1, 
+    const res: any = await listModels({
+      pageNum: 1,
       pageSize: 50,
       searchText: searchText || undefined
     })
-    
+
     if (res.data && res.data.code === 0 && res.data.data && res.data.data.records) {
       const models = res.data.data.records
       modelOptions.value = models.map((m: ModelVO) => ({
         label: m.name,
         value: m.id,
       }))
-      
+
       if (currentMode.value === 'model-compare') {
         if (selectedModels.value.length === 0 && models.length >= 1) {
           // 默认选择第一个模型，如果有多于1个模型，也选择第二个（方便对比）
@@ -960,6 +1184,10 @@ const loadModels = async (searchText?: string) => {
             selectedModels.value = [models[0].id]
           }
         }
+      } else if (currentMode.value === 'battle') {
+        // Battle模式：不设置模型，保持为空
+        selectedModels.value = []
+        selectedModel.value = undefined
       } else {
         // 提示词实验模式：默认选择第一个模型
         if (!selectedModel.value && models.length > 0) {
@@ -986,7 +1214,7 @@ const handleModeChange = (mode: string) => {
   variants.value = ['', '']
   currentConversationId.value = undefined
   activePreviewTab.value = 0
-  
+
   // 切换到提示词实验模式时，确保模型已选择
   if (mode === 'prompt-experiment' && !selectedModel.value && modelOptions.value.length > 0) {
     selectedModel.value = modelOptions.value[0].value
@@ -1079,22 +1307,22 @@ const getAvailableOptionsForIndex = (currentIndex: number) => {
   const selectedByOthers = selectedModels.value
     .map((model, idx) => idx !== currentIndex ? model : null)
     .filter(m => m) as string[]
-  
-  return modelOptions.value.filter(option => 
+
+  return modelOptions.value.filter(option =>
     !selectedByOthers.includes(option.value)
   )
 }
 
 const updateModelAtIndex = (index: number, value: string) => {
-  const isDuplicate = selectedModels.value.some((m, idx) => 
+  const isDuplicate = selectedModels.value.some((m, idx) =>
     idx !== index && m === value
   )
-  
+
   if (isDuplicate) {
     message.warning('该模型已被选择，请选择其他模型')
     return
   }
-  
+
   const newModels = [...selectedModels.value]
   newModels[index] = value
   selectedModels.value = newModels
@@ -1132,21 +1360,21 @@ const downloadHtml = () => {
     message.warning('没有可下载的HTML内容')
     return
   }
-  
+
   const lastMsg = messages.value[messages.value.length - 1]
   if (!lastMsg || lastMsg.type !== 'assistant') {
     return
   }
-  
+
   const currentResponse = lastMsg.responses?.[activePreviewTab.value]
   if (!currentResponse) {
     return
   }
-  
+
   const modelName = currentResponse.modelName?.replace(/\//g, '-') || 'unknown'
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5)
   const fileName = `${modelName}_${timestamp}.html`
-  
+
   const blob = new Blob([currentPreviewHtml.value], { type: 'text/html;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
@@ -1156,7 +1384,7 @@ const downloadHtml = () => {
   link.click()
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
-  
+
   message.success(`HTML文件已下载: ${fileName}`)
 }
 
@@ -1215,38 +1443,66 @@ const sendMessage = async () => {
   userInput.value = ''
   isLoading.value = true
 
-  messages.value.push({ 
-    type: 'user', 
+  messages.value.push({
+    type: 'user',
     content: text
   })
 
   const assistantMsgIndex = messages.value.length
-  const initialResponses = selectedModels.value.map(model => ({
-    modelName: model,
-    fullContent: '',
-    done: false,
-    hasError: false,
-    codeBlocks: []
-  }))
-  
-  messages.value.push({ 
-    type: 'assistant', 
+  const initialResponses = currentMode.value === 'battle'
+    ? [
+        { modelName: '', fullContent: '', done: false, hasError: false, codeBlocks: [] },
+        { modelName: '', fullContent: '', done: false, hasError: false, codeBlocks: [] }
+      ]
+    : selectedModels.value.map(model => ({
+        modelName: model,
+        fullContent: '',
+        done: false,
+        hasError: false,
+        codeBlocks: []
+      }))
+
+  messages.value.push({
+    type: 'assistant',
     responses: initialResponses
+    // messageIndex 会在收到chunk时从后端设置
   })
-  
+
+  // Battle模式下，新消息轮次默认未揭晓（即使之前已经揭晓过）
+  // 新消息轮次需要用户点击"评分"后才会自动揭晓显示真实模型名
+
   scrollToBottom()
 
   try {
-    const url = `${API_BASE_URL}/conversation/code-mode/stream`
-    
+    // Battle模式使用专门的接口
+    const url = currentMode.value === 'battle'
+      ? `${API_BASE_URL}/conversation/battle/stream`
+      : `${API_BASE_URL}/conversation/code-mode/stream`
+
+    const requestBody: any = {
+      prompt: text,
+      stream: true
+    }
+
+    if (currentConversationId.value) {
+      requestBody.conversationId = currentConversationId.value
+    }
+
+    // Battle模式可以不传models（后端会随机选择），其他模式必须传
+    if (currentMode.value !== 'battle') {
+      requestBody.models = selectedModels.value
+    } else {
+      // Battle模式：代码模式下需要设置 codePreviewEnabled=true
+      requestBody.codePreviewEnabled = true
+      if (selectedModels.value && selectedModels.value.length >= 2) {
+        // Battle模式如果用户选择了模型，也可以传递
+        requestBody.models = selectedModels.value.slice(0, 2)
+      }
+    }
+
     await createPostSSE(
       url,
-      { 
-        conversationId: currentConversationId.value, 
-        models: selectedModels.value, 
-        prompt: text,
-        stream: true 
-      },
+      requestBody,
       {
         onMessage: (chunk: any) => {
           console.log('📨 CodeMode收到chunk:', {
@@ -1260,30 +1516,100 @@ const sendMessage = async () => {
             hasCodeContent: hasCodeContent(chunk.fullContent || ''),
             codeLanguage: getCodeLanguage(chunk.fullContent || '')
           })
-          
+
           // 检查是否有错误
           if (chunk.hasError) {
             console.error('❌ 模型调用失败:', chunk.modelName, chunk.error)
             message.error(`${chunk.modelName} 调用失败: ${chunk.error || '未知错误'}`)
           }
-          
+
           if (chunk.conversationId && !currentConversationId.value) {
             currentConversationId.value = chunk.conversationId
           }
-          
+
           const msg = messages.value[assistantMsgIndex]
           if (!msg || !msg.responses) return
-          
+
           // 设置messageIndex（从chunk中获取，如果没有则使用当前索引）
           if (chunk.messageIndex !== undefined && msg.messageIndex === undefined) {
             msg.messageIndex = chunk.messageIndex
           }
-          
-          const idx = msg.responses.findIndex((r: any) => r.modelName === chunk.modelName)
+
+          let idx = msg.responses.findIndex((r: any) => r.modelName === chunk.modelName)
+
+          if (idx < 0 && currentMode.value === 'battle') {
+            const emptyIdx = msg.responses.findIndex((r: any) => !r.modelName || r.modelName === '')
+            if (emptyIdx >= 0) {
+              idx = emptyIdx
+            } else {
+              msg.responses.push({ modelName: '', fullContent: '', done: false, hasError: false, codeBlocks: [] })
+              idx = msg.responses.length - 1
+            }
+          }
+
           if (idx >= 0) {
-            msg.responses[idx] = { ...msg.responses[idx], ...chunk }
+            let displayModelName = chunk.modelName
+            let realModelName = chunk.modelName
+
+            // Battle模式：将真实模型名转换为匿名标识
+            if (currentMode.value === 'battle' && chunk.modelName && modelMapping.value && Object.keys(modelMapping.value).length > 0) {
+              // 创建反向映射：真实模型名 -> 匿名标识
+              const realToAnonymousMap: Record<string, string> = {}
+              Object.entries(modelMapping.value).forEach(([anonymousName, realModel]) => {
+                realToAnonymousMap[realModel] = anonymousName
+              })
+
+              // 如果找到了对应的匿名标识，使用匿名标识作为显示名称
+              if (realToAnonymousMap[chunk.modelName]) {
+                displayModelName = realToAnonymousMap[chunk.modelName]
+                console.log('🔐 Battle模式流式响应，转换模型名称:', chunk.modelName, '->', displayModelName)
+              } else {
+                // 如果找不到映射，根据响应顺序分配（第一个响应是模型A，第二个是模型B）
+                if (idx === 0) {
+                  displayModelName = '模型A'
+                } else if (idx === 1) {
+                  displayModelName = '模型B'
+                }
+                console.log('⚠️ Battle模式流式响应，未找到映射，使用索引分配:', idx, '->', displayModelName)
+              }
+            }
+
+            if (currentMode.value === 'battle' && !msg.responses[idx].modelName && displayModelName) {
+              msg.responses[idx].modelName = displayModelName
+            }
+
+            const existingResp = msg.responses[idx]
+            const updatedResponse = { ...existingResp, ...chunk, modelName: displayModelName }
+
+            // 保护 reasoning 相关字段，防止被后续 chunk 的 undefined 覆盖
+            if (existingResp.reasoning && !chunk.reasoning) {
+              updatedResponse.reasoning = existingResp.reasoning
+            }
+            if (existingResp.hasReasoning && chunk.hasReasoning === undefined) {
+              updatedResponse.hasReasoning = existingResp.hasReasoning
+            }
+            if (existingResp.thinkingTime && chunk.thinkingTime === undefined) {
+              updatedResponse.thinkingTime = existingResp.thinkingTime
+            }
+
+            // Battle模式：始终保存真实模型名（展示由 isMessageRevealed 控制）
+            if (currentMode.value === 'battle' && realModelName) {
+              updatedResponse.realModelName = realModelName
+            }
+
+            msg.responses[idx] = updatedResponse
+
+            // Battle模式：确保响应顺序为模型A在前、模型B在后
+            if (currentMode.value === 'battle' && msg.responses.length >= 2) {
+              msg.responses.sort((a: any, b: any) => {
+                const orderA = a.modelName === '模型A' ? 0 : a.modelName === '模型B' ? 1 : 2
+                const orderB = b.modelName === '模型A' ? 0 : b.modelName === '模型B' ? 1 : 2
+                return orderA - orderB
+              })
+            }
+
             messages.value = [...messages.value]
-            
+
             if (chunk.done) {
               console.log('✅ 模型完成:', chunk.modelName, 'hasError:', chunk.hasError)
               const allDone = msg.responses.every((r: any) => r.done)
@@ -1292,6 +1618,25 @@ const sendMessage = async () => {
                 isLoading.value = false
                 highlightCode()
                 scrollToBottom()
+
+                // 所有响应完成后，更新URL中的conversationId
+                const conversationId = chunk.conversationId || route.query.conversationId as string || currentConversationId.value
+                if (chunk.conversationId && (!route.query.conversationId || route.query.conversationId !== chunk.conversationId)) {
+                  router.replace({
+                    path: '/code-mode',
+                    query: { conversationId: chunk.conversationId }
+                  })
+                }
+
+                // Battle 模式：提前拉取模型映射（用于评分后揭晓）
+                if (conversationId && currentMode.value === 'battle') {
+                  ensureBattleModelMapping(conversationId)
+                }
+
+                // 加载评分信息（Battle模式和模型对比模式）
+                if (conversationId && (currentMode.value === 'battle' || currentMode.value === 'model-compare')) {
+                  loadRatings(conversationId)
+                }
               }
             }
           }
@@ -1326,7 +1671,7 @@ const handlePromptSubmit = async () => {
   // 为每个变体创建独立的用户消息和AI响应消息对
   // 格式：提示词1 -> AI响应1, 提示词2 -> AI响应2
   const variantMessageIndices: number[] = []
-  
+
   promptVariantsToUse.forEach((variant, idx) => {
     // 添加用户消息（单个变体）
     messages.value.push({
@@ -1334,11 +1679,11 @@ const handlePromptSubmit = async () => {
       content: variant,
       variantIndex: idx  // 保存变体索引
     })
-    
+
     // 添加AI响应占位（单个变体）
     const assistantMsgIndex = messages.value.length
     variantMessageIndices.push(assistantMsgIndex)
-    
+
     messages.value.push({
       type: 'assistant',
       responses: [{
@@ -1356,10 +1701,10 @@ const handlePromptSubmit = async () => {
 
   try {
     const url = `${API_BASE_URL}/conversation/code-mode/prompt-lab/stream`
-    
+
     // 保存 variantMessageIndices 的引用，以便在回调中使用
     const currentVariantIndices = [...variantMessageIndices]
-    
+
     await createPostSSE(
       url,
       {
@@ -1380,14 +1725,10 @@ const handlePromptSubmit = async () => {
             codeBlocksCount: chunk.codeBlocks?.length || 0
           })
 
-          if (chunk.conversationId && !currentConversationId.value) {
-            currentConversationId.value = chunk.conversationId
-            // 延迟更新URL，避免触发watch导致消息被清空
-            // 在流式传输完成后再更新URL
-            // router.replace({
-            //   path: '/code-mode',
-            //   query: { conversationId: chunk.conversationId }
-            // })
+          if (chunk.conversationId) {
+            if (!currentConversationId.value) {
+              currentConversationId.value = chunk.conversationId
+            }
           }
 
           // 根据variantIndex找到对应的消息索引
@@ -1396,7 +1737,7 @@ const handlePromptSubmit = async () => {
             if (variantIdx >= 0 && variantIdx < currentVariantIndices.length) {
               const msgIndex = currentVariantIndices[variantIdx]
               const msg = messages.value[msgIndex]
-              
+
               if (!msg || !msg.responses || msg.responses.length === 0) {
                 console.warn('⚠️ 消息或responses不存在:', { msgIndex, msg })
                 return
@@ -1412,10 +1753,10 @@ const handlePromptSubmit = async () => {
               if (chunk.messageIndex !== undefined && msg.messageIndex === undefined) {
                 msg.messageIndex = chunk.messageIndex
               }
-              
+
               // 更新响应（每个变体只有一个响应）
-              msg.responses[0] = { 
-                ...msg.responses[0], 
+              msg.responses[0] = {
+                ...msg.responses[0],
                 ...chunk,
                 // 确保保留必要的字段
                 modelName: msg.responses[0].modelName || chunk.modelName || selectedModel.value,
@@ -1432,19 +1773,27 @@ const handlePromptSubmit = async () => {
                   const m = messages.value[idx]
                   return m && m.responses && m.responses.length > 0 && m.responses[0].done
                 })
-                
+
                 console.log('📊 变体完成状态:', {
                   currentDone: chunk.done,
                   variantIndex: chunk.variantIndex,
                   allDone,
                   totalVariants: currentVariantIndices.length
                 })
-                
+
                 if (allDone) {
                   console.log('🎉 所有变体完成')
                   isLoading.value = false
                   highlightCode()
                   scrollToBottom()
+
+                  // 所有变体完成后，更新URL中的conversationId
+                  if (chunk.conversationId && (!route.query.conversationId || route.query.conversationId !== chunk.conversationId)) {
+                    router.replace({
+                      path: '/code-mode',
+                      query: { conversationId: chunk.conversationId }
+                    })
+                  }
                 }
               }
             } else {
@@ -1484,32 +1833,32 @@ const handlePromptSubmit = async () => {
 
 const loadConversations = async (append: boolean = false) => {
   if (!loginUser.value.id || loading.value) return
-  
+
   try {
     loading.value = true
-    
-    const res: any = await listConversations({ 
-      pageNum: currentPage.value, 
+
+    const res: any = await listConversations({
+      pageNum: currentPage.value,
       pageSize: 50,
       codePreviewEnabled: 1
     })
     if (res.data && res.data.code === 0 && res.data.data && res.data.data.records) {
       const conversations = res.data.data.records
       const totalPages = res.data.data.totalPage || 1
-      
+
       hasMore.value = currentPage.value < totalPages
-      
+
       const now = new Date()
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
       const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000)
-      
+
       const todayList = conversations.filter((c: any) => new Date(c.createTime) >= today)
       const yesterdayList = conversations.filter((c: any) => {
         const createTime = new Date(c.createTime)
         return createTime >= yesterday && createTime < today
       })
       const olderList = conversations.filter((c: any) => new Date(c.createTime) < yesterday)
-      
+
       if (append) {
         todayConversations.value = [...todayConversations.value, ...todayList]
         yesterdayConversations.value = [...yesterdayConversations.value, ...yesterdayList]
@@ -1539,6 +1888,83 @@ const openConversation = (id: string) => {
   router.push(`/code-mode?conversationId=${id}`)
 }
 
+// 获取图标映射函数
+const getIconFile = (modelId: string) => {
+  const provider = modelId.split('/')[0]?.toLowerCase() || ''
+  const iconMap: Record<string, string> = {
+    'openai': 'openai.png',
+    'anthropic': 'anthropic.png',
+    'google': 'google.png',
+    'meta-llama': 'meta-llama.png',
+    'qwen': 'qwen.png',
+    'alibaba': 'alibaba.png',
+    'deepseek': 'deepseek.png',
+    'baidu': 'baidu.png',
+    'zhipu': 'zhipu.png',
+    'z-ai': 'zhipu.png',
+    'moonshot': 'moonshot.png',
+    'moonshotai': 'moonshot.png',
+    'tencent': 'tencent.png',
+    'bytedance': 'bytedance.png',
+    'bytedance-seed': 'bytedance.png',
+    'meituan': 'meituan.png',
+  }
+  return iconMap[provider] || 'default.png'
+}
+
+// 获取所有模型的图标和名称（用于Popover显示）
+const getAllModelLogos = (modelsJson: string) => {
+  try {
+    const models = JSON.parse(modelsJson || '[]')
+    return models.map((modelId: string) => {
+      const iconFile = getIconFile(modelId)
+      return {
+        url: new URL(`../assets/provider-icons/${iconFile}`, import.meta.url).href,
+        alt: modelId.split('/')[0] || 'AI',
+        name: modelId.split('/').pop() || modelId
+      }
+    })
+  } catch {
+    return []
+  }
+}
+
+// 获取模型Logo URL（使用本地图标，最多显示2个）
+const getModelLogos = (modelsJson: string) => {
+  try {
+    const models = JSON.parse(modelsJson || '[]')
+    const totalCount = models.length
+
+    // 最多显示2个图标
+    const displayModels = models.slice(0, 2)
+    const logos = displayModels.map((modelId: string) => {
+      const iconFile = getIconFile(modelId)
+      return {
+        url: new URL(`../assets/provider-icons/${iconFile}`, import.meta.url).href,
+        alt: modelId.split('/')[0] || 'AI',
+        isMore: false
+      }
+    })
+
+    // 如果超过2个，添加省略号图标
+    if (totalCount > 2) {
+      logos.push({
+        url: '',
+        alt: `+${totalCount - 2}`,
+        isMore: true
+      })
+    }
+
+    return logos
+  } catch {
+    return [{
+      url: new URL('../assets/provider-icons/default.png', import.meta.url).href,
+      alt: 'AI',
+      isMore: false
+    }]
+  }
+}
+
 const scrollToBottom = async () => {
   await nextTick()
   if (messagesWrapper.value) {
@@ -1562,14 +1988,14 @@ const highlightedElements = new Set<string>()
 const highlightGeneratingCode = (element: HTMLElement, modelName: string) => {
   // 使用唯一标识避免重复高亮
   const key = `${modelName}-generating`
-  
+
   if (!highlightedElements.has(key)) {
     nextTick(() => {
       const codeBlock = element.querySelector('code')
       if (codeBlock) {
         hljs.highlightElement(codeBlock as HTMLElement)
         highlightedElements.add(key)
-        
+
         // 使用 watch 监听内容变化，重新高亮
         setTimeout(() => {
           highlightedElements.delete(key)
@@ -1617,7 +2043,7 @@ const calculateThinkingTime = (reasoning: string | undefined) => {
 
 const getFileName = (language: string) => {
   const lang = language?.toLowerCase() || 'html'
-  
+
   const fileExtensions: Record<string, string> = {
     'html': 'index.html',
     'javascript': 'script.js',
@@ -1636,7 +2062,7 @@ const getFileName = (language: string) => {
     'shell': 'script.sh',
     'markdown': 'README.md',
   }
-  
+
   return fileExtensions[lang] || `code.${lang}`
 }
 
@@ -1665,26 +2091,70 @@ const loadConversationHistory = async () => {
   try {
     console.log('📡 开始加载代码模式历史会话:', conversationId)
     isLoading.value = true
-    
+
     // 1. 加载会话详情，获取模型配置
     const conversationRes: any = await getConversation({ conversationId })
     console.log('📡 会话详情响应:', conversationRes)
-    
+
     let conversation: any = null
     if (conversationRes.data && conversationRes.data.code === 0 && conversationRes.data.data) {
       conversation = conversationRes.data.data
       console.log('📋 会话信息:', conversation)
-      
+
       // 先不设置模式，等加载消息后再根据消息内容判断
-      
+
+      // 检查是否为Battle模式（isAnonymous=true 或 conversationType=battle）
+      const isBattle = conversation.isAnonymous || conversation.conversationType === 'battle'
+
+      if (isBattle) {
+        currentMode.value = 'battle'
+        selectedModels.value = []
+        selectedModel.value = undefined
+
+        // 如果有modelMapping，解析它
+        if (conversation.modelMapping) {
+          try {
+            const parsedMapping = typeof conversation.modelMapping === 'string'
+              ? JSON.parse(conversation.modelMapping)
+              : conversation.modelMapping
+            modelMapping.value = parsedMapping
+          } catch (e) {
+            console.error('解析模型映射失败:', e)
+            modelMapping.value = {}
+          }
+        } else {
+          // 如果没有modelMapping，尝试从models字段恢复
+          console.warn('⚠️ Battle模式但没有modelMapping，尝试从models字段恢复')
+          if (conversation.models) {
+            try {
+              const models = typeof conversation.models === 'string'
+                ? JSON.parse(conversation.models)
+                : conversation.models
+              if (Array.isArray(models) && models.length >= 2) {
+                // 创建默认映射
+                modelMapping.value = {
+                  '模型A': models[0],
+                  '模型B': models[1]
+                }
+                console.log('✅ 从models字段恢复模型映射:', modelMapping.value)
+              }
+            } catch (e) {
+              console.error('从models字段恢复映射失败:', e)
+            }
+          }
+        }
+        // Battle 模式：揭晓状态由“评分是否存在”决定（刷新后根据评分恢复）
+        revealed.value = false
+      }
+
       // 解析模型配置（后端存储的是JSON数组字符串）
-      if (conversation.models) {
+      if (conversation.models && !conversation.isAnonymous) {
         try {
           // 如果是JSON数组字符串，解析它
-          const modelIds = typeof conversation.models === 'string' 
-            ? JSON.parse(conversation.models) 
+          const modelIds = typeof conversation.models === 'string'
+            ? JSON.parse(conversation.models)
             : conversation.models
-          
+
           if (currentMode.value === 'model-compare') {
             selectedModels.value = modelIds
             console.log('🤖 恢复模型配置:', modelIds)
@@ -1701,45 +2171,92 @@ const loadConversationHistory = async () => {
         } catch (e) {
           console.error('❌ 解析模型配置失败:', e)
           // 降级处理：尝试按逗号分隔（兼容旧数据）
-          const modelIds = conversation.models.split(',').map((m: string) => m.trim())
-          if (currentMode.value === 'model-compare') {
-            selectedModels.value = modelIds
-          } else if (currentMode.value === 'prompt-experiment' && modelIds.length > 0) {
-            selectedModel.value = modelIds[0]
+          if (!conversation.isAnonymous) {
+            const modelIds = conversation.models.split(',').map((m: string) => m.trim())
+            if (currentMode.value === 'model-compare') {
+              selectedModels.value = modelIds
+            } else if (currentMode.value === 'prompt-experiment' && modelIds.length > 0) {
+              selectedModel.value = modelIds[0]
+            }
           }
         }
       }
     }
-    
+
     // 2. 加载消息历史
     const res: any = await getConversationMessages({ conversationId })
     console.log('📡 消息历史响应:', res)
-    
+
     if (res.data && res.data.code === 0 && res.data.data) {
       const historyMessages = res.data.data as any[]
       console.log('📨 原始历史消息数量:', historyMessages.length)
-      
-      // 判断是否为提示词实验模式（根据消息中的variantIndex）
-      // 注意：后端使用的是 CODE_MODE 类型，所以需要通过消息中的 variantIndex 来判断
+
+      const isBattle = conversation && (conversation.isAnonymous || conversation.conversationType === 'battle')
       const isPromptExperiment = historyMessages.some((m: any) => m.variantIndex !== null && m.variantIndex !== undefined)
-      
-      // 根据判断结果设置模式
-      if (isPromptExperiment) {
+
+      if (isBattle) {
+        currentMode.value = 'battle'
+        selectedModels.value = []
+        selectedModel.value = undefined
+        // 确保 modelMapping 已设置（如果还没有设置，从conversation中获取）
+        if (conversation) {
+          if (conversation.modelMapping && !modelMapping.value) {
+            try {
+              const parsedMapping = typeof conversation.modelMapping === 'string'
+                ? JSON.parse(conversation.modelMapping)
+                : conversation.modelMapping
+              modelMapping.value = parsedMapping
+              console.log('🔄 从conversation.modelMapping恢复映射:', modelMapping.value)
+            } catch (e) {
+              console.error('解析模型映射失败:', e)
+              modelMapping.value = {}
+            }
+          } else if (!conversation.modelMapping && conversation.models && !modelMapping.value) {
+            // 如果没有modelMapping，尝试从models字段恢复
+            try {
+              const models = typeof conversation.models === 'string'
+                ? JSON.parse(conversation.models)
+                : conversation.models
+              if (Array.isArray(models) && models.length >= 2) {
+                modelMapping.value = {
+                  '模型A': models[0],
+                  '模型B': models[1]
+                }
+                console.log('🔄 从conversation.models恢复映射:', modelMapping.value)
+              }
+            } catch (e) {
+              console.error('从models字段恢复映射失败:', e)
+            }
+          }
+        }
+        // 无论 modelMapping 是否存在，都要检查 localStorage 中是否记录过已揭晓
+        // 这样可以确保即使之前已经设置了revealed，也能正确恢复
+        const revealedConversations = JSON.parse(localStorage.getItem('battle_revealed') || '[]')
+        const isRevealed = revealedConversations.includes(conversationId)
+        revealed.value = isRevealed
+        console.log('🔍 加载历史消息时检查localStorage - conversationId:', conversationId, 'revealed列表:', revealedConversations, 'isRevealed:', isRevealed, '当前revealed.value:', revealed.value, 'modelMapping:', modelMapping.value)
+        if (isRevealed) {
+          console.log('🔄 检测到Battle模式，从localStorage恢复已揭晓状态，conversationId:', conversationId)
+        } else {
+          console.log('🔄 检测到Battle模式，恢复模型映射（未揭晓）:', modelMapping.value, 'conversationId:', conversationId)
+        }
+        console.log('🔄 检测到Battle模式，切换到匿名对比')
+      } else if (isPromptExperiment) {
         currentMode.value = 'prompt-experiment'
         console.log('🔄 根据消息内容检测到提示词实验模式，切换到提示词实验')
       } else {
         currentMode.value = 'model-compare'
         console.log('🔄 检测到模型对比模式，切换到模型对比')
       }
-      
+
       // 在if块外声明loadedMessages，确保在最后可以使用
       let loadedMessages: Msg[] = []
-      
+
       if (isPromptExperiment) {
         // 提示词实验模式：使用 messageIndex/2 + variantIndex 排序
         // 确保显示顺序为：用户消息1 -> AI消息1 -> 用户消息2 -> AI消息2
         console.log('📨 提示词实验模式 - 原始消息数量:', historyMessages.length)
-        
+
         // 为每条消息计算排序键：messageIndex/2 + variantIndex
         const messagesWithSortKey = historyMessages.map((msg: any) => {
           const msgIdx = msg.messageIndex || 0
@@ -1752,10 +2269,10 @@ const loadConversationHistory = async () => {
             sortKey
           }
         })
-        
+
         // 按排序键排序
         messagesWithSortKey.sort((a, b) => a.sortKey - b.sortKey)
-        
+
         console.log('📨 提示词实验模式 - 排序后的消息:', messagesWithSortKey.map((m: any) => ({
           messageIndex: m.messageIndex,
           variantIndex: m.variantIndex,
@@ -1763,7 +2280,7 @@ const loadConversationHistory = async () => {
           sortKey: m.sortKey,
           content: m.content?.substring(0, 30) + '...'
         })))
-        
+
         // 转换为UI需要的格式
         loadedMessages = []
         for (const msg of messagesWithSortKey) {
@@ -1778,15 +2295,15 @@ const loadConversationHistory = async () => {
             let codeBlocks = []
             if (msg.codeBlocks) {
               try {
-                codeBlocks = typeof msg.codeBlocks === 'string' 
-                  ? JSON.parse(msg.codeBlocks) 
+                codeBlocks = typeof msg.codeBlocks === 'string'
+                  ? JSON.parse(msg.codeBlocks)
                   : msg.codeBlocks
               } catch (e) {
                 console.error('❌ 解析codeBlocks失败:', e, 'raw:', msg.codeBlocks)
                 codeBlocks = []
               }
             }
-            
+
             loadedMessages.push({
               type: 'assistant',
               messageIndex: msg.messageIndex,
@@ -1799,15 +2316,18 @@ const loadConversationHistory = async () => {
                 codeBlocks: codeBlocks,
                 responseTimeMs: msg.responseTimeMs,
                 cost: msg.cost,
-                hasError: false
+                hasError: false,
+                reasoning: msg.reasoning || '',
+                hasReasoning: !!(msg.reasoning && msg.reasoning.trim()),
+                thinkingTime: msg.thinkingTime || (msg.reasoning ? Math.max(1, Math.min(msg.reasoning.length / 200, 60)) : undefined)
               }]
             })
           }
         }
-        
+
         console.log('✅ 提示词实验模式 - 加载完成，消息数量:', loadedMessages.length)
         messages.value = loadedMessages
-        
+
         // 从历史消息中提取变体数量和内容，设置输入框
         // 只从第一轮对话（messageIndex=0）中提取，避免多轮对话时重复
         const variantMap = new Map<number, string>()
@@ -1815,20 +2335,20 @@ const loadConversationHistory = async () => {
           const msgIdx = msg.messageIndex || 0
           return msgIdx === 0 || msgIdx === 1  // messageIndex 0是用户消息，1是assistant消息
         })
-        
+
         firstRoundMessages.forEach((msg: any) => {
           if (msg.role === 'user' && msg.variantIndex !== null && msg.variantIndex !== undefined) {
             variantMap.set(msg.variantIndex, msg.content || '')
           }
         })
-        
+
         // 按variantIndex排序
         const sortedVariants = Array.from(variantMap.entries())
           .sort((a, b) => a[0] - b[0])
           .map(([_, content]) => content)
-        
+
         console.log('📝 从第一轮对话提取到的变体数量和内容:', sortedVariants.length, sortedVariants)
-        
+
         // 设置变体输入框（至少2个，最多5个）
         if (sortedVariants.length >= 2) {
           // 如果变体数量超过5个，只取前5个
@@ -1844,7 +2364,7 @@ const loadConversationHistory = async () => {
           console.log('⚠️ 未找到变体，使用默认的2个空输入框')
         }
       } else {
-        // 模型对比模式：按messageIndex分组
+        // 模型对比模式或Battle模式：按messageIndex分组
         const messagesByIndex = new Map<number, any[]>()
         historyMessages.forEach((msg: any) => {
           const idx = msg.messageIndex || 0
@@ -1853,33 +2373,42 @@ const loadConversationHistory = async () => {
           }
           messagesByIndex.get(idx)!.push(msg)
         })
-        
-        console.log('📨 模型对比模式 - 分组后的消息:', messagesByIndex)
-        
+
+        console.log('📨 模型对比/Battle模式 - 分组后的消息:', messagesByIndex)
+
+        // 如果是Battle模式，创建反向映射（真实模型名 -> 匿名标识）
+        const realToAnonymousMap: Record<string, string> = {}
+        if (isBattle && modelMapping.value) {
+          Object.entries(modelMapping.value).forEach(([anonymousName, realModelName]) => {
+            realToAnonymousMap[realModelName as string] = anonymousName
+          })
+          console.log('🔐 Battle模式反向映射:', realToAnonymousMap)
+        }
+
         // 转换为UI需要的格式
         loadedMessages = []
         const sortedIndexes = Array.from(messagesByIndex.keys()).sort((a, b) => a - b)
-        
+
         for (const idx of sortedIndexes) {
           const msgs = messagesByIndex.get(idx)!
           const userMsg = msgs.find(m => m.role === 'user')
           const assistantMsgs = msgs.filter(m => m.role === 'assistant')
-          
+
           if (userMsg) {
             loadedMessages.push({
               type: 'user',
               content: userMsg.content
             })
           }
-          
+
           if (assistantMsgs.length > 0) {
             const responses = assistantMsgs.map(m => {
               // 解析codeBlocks JSON字符串
               let codeBlocks = []
               if (m.codeBlocks) {
                 try {
-                  codeBlocks = typeof m.codeBlocks === 'string' 
-                    ? JSON.parse(m.codeBlocks) 
+                  codeBlocks = typeof m.codeBlocks === 'string'
+                    ? JSON.parse(m.codeBlocks)
                     : m.codeBlocks
                   console.log('✅ 解析codeBlocks成功:', {
                     modelName: m.modelName,
@@ -1894,28 +2423,52 @@ const loadConversationHistory = async () => {
               } else {
                 console.log('⚠️ 消息没有codeBlocks字段:', m.modelName)
               }
-              
-              const response = {
-                modelName: m.modelName,
+
+              // 如果是Battle模式，根据是否已揭晓决定显示匿名标识还是真实模型名
+              let displayModelName = m.modelName
+              if (isBattle && modelMapping.value) {
+                if (realToAnonymousMap[m.modelName]) {
+                  // 如果找到了对应的匿名标识，使用匿名标识作为显示名称
+                  displayModelName = realToAnonymousMap[m.modelName]
+                  console.log('🔐 Battle模式，转换模型名称: {} -> {}', m.modelName, displayModelName)
+                }
+                // 注意：真实模型名保存在 m.modelName 中，用于后续显示真实模型名
+              }
+
+              const response: any = {
+                modelName: displayModelName,
                 fullContent: m.content || '',
                 done: true,
                 hasCodeBlocks: codeBlocks.length > 0,
                 codeBlocks: codeBlocks,
                 responseTimeMs: m.responseTimeMs,
                 cost: m.cost,
-                hasError: false
+                hasError: false,
+                reasoning: m.reasoning || '',
+                hasReasoning: !!(m.reasoning && m.reasoning.trim()),
+                thinkingTime: m.thinkingTime || (m.reasoning ? Math.max(1, Math.min(m.reasoning.length / 200, 60)) : undefined)
               }
-              
-              console.log('📦 构建的response对象:', {
-                modelName: response.modelName,
-                hasCodeBlocks: response.hasCodeBlocks,
-                codeBlocksCount: response.codeBlocks?.length,
-                contentLength: response.fullContent?.length
-              })
-              
+
+              // 如果是Battle模式且该消息轮次已揭晓，保存真实模型名用于显示（未揭晓时不保存）
+              // 检查该消息轮次是否已揭晓（通过检查是否有评分或已标记为揭晓）
+              const messageIndex = m.messageIndex !== undefined ? m.messageIndex : idx
+              const isMessageRevealed = revealedMessageIndexes.value.has(messageIndex)
+              if (isBattle && isMessageRevealed && modelMapping.value && Object.keys(modelMapping.value).length > 0 && m.modelName) {
+                response.realModelName = m.modelName
+              }
+
               return response
             })
-            
+
+            // Battle模式：确保响应顺序为模型A在前、模型B在后
+            if (isBattle && responses.length >= 2) {
+              responses.sort((a: any, b: any) => {
+                const orderA = a.modelName === '模型A' ? 0 : a.modelName === '模型B' ? 1 : 2
+                const orderB = b.modelName === '模型A' ? 0 : b.modelName === '模型B' ? 1 : 2
+                return orderA - orderB
+              })
+            }
+
             loadedMessages.push({
               type: 'assistant',
               messageIndex: idx,
@@ -1923,13 +2476,20 @@ const loadConversationHistory = async () => {
             })
           }
         }
-        
+
         messages.value = loadedMessages
+
+        // 如果是Battle模式，设置默认的预览tab为第一个响应
+        if (isBattle && loadedMessages.length > 0) {
+          await nextTick()
+          activePreviewTab.value = 0
+          console.log('🔄 [加载历史] Battle模式，设置默认预览tab为0')
+        }
       }
-      
+
       currentConversationId.value = conversationId
       console.log('✅ 历史消息加载完成:', loadedMessages.length, '条')
-      
+
       // 如果是提示词实验模式，设置默认的预览tab为第一个变体
       if (isPromptExperiment && loadedMessages.length > 0) {
         // 等待nextTick确保messages已更新
@@ -1943,36 +2503,25 @@ const loadConversationHistory = async () => {
           console.log('⚠️ [加载历史] 没有找到变体，activePreviewTab保持为', activePreviewTab.value)
         }
       }
-      
-      // 加载评分信息
+
+      // 加载评分信息（使用统一的loadRatings函数）
       if (conversationId && loadedMessages.length > 0) {
-        try {
-          const ratingsRes = await getRatingsByConversationId(conversationId)
-          if (ratingsRes.data && ratingsRes.data.code === 0 && ratingsRes.data.data) {
-            const ratings = ratingsRes.data.data
-            console.log('📊 加载评分信息:', ratings.length, '条')
-            
-            // 将评分信息关联到对应的消息
-            // 在提示词实验模式下，同一轮对话的多个变体消息有相同的 messageIndex
-            // 需要将评分信息关联到所有匹配的消息上
-            ratings.forEach((rating: RatingVO) => {
-              loadedMessages.forEach((m: Msg) => {
-                if (m.type === 'assistant' && m.messageIndex === rating.messageIndex) {
-                  m.rating = rating
-                }
-              })
-            })
-            
-            console.log('📊 评分信息关联完成，已关联的消息:', loadedMessages.filter((m: Msg) => m.rating).length)
-            
-            // 更新messages
-            messages.value = loadedMessages
-          }
-        } catch (error) {
-          console.error('❌ 加载评分失败:', error)
+        // 先更新messages，然后加载评分
+        messages.value = loadedMessages
+        // 加载评分信息
+        await loadRatings(conversationId)
+
+        // 如果已揭晓过，标记所有消息轮次为已揭晓
+        if (revealed.value && modelMapping.value && Object.keys(modelMapping.value).length > 0) {
+          loadedMessages.forEach((m: Msg) => {
+            if (m.type === 'assistant' && m.messageIndex !== undefined) {
+              revealedMessageIndexes.value.add(m.messageIndex)
+            }
+          })
+          console.log('✅ 恢复所有消息轮次的揭晓状态，已揭晓的轮次:', Array.from(revealedMessageIndexes.value))
         }
       }
-      
+
       await nextTick()
       highlightCode()
       scrollToBottom()
@@ -1990,30 +2539,35 @@ const shouldShowRating = (msg: Msg, msgIndex: number) => {
   if (!msg || msg.type !== 'assistant' || !msg.responses) {
     return false
   }
-  
+
+  // Battle模式：需要至少2个响应
+  if (currentMode.value === 'battle') {
+    return msg.responses.length >= 2
+  }
+
   // 模型对比模式：需要至少2个响应
   if (currentMode.value === 'model-compare') {
     return msg.responses.length >= 2
   }
-  
+
   // 提示词实验模式：只在一轮对话的最后一个变体下方显示评分按钮
   if (currentMode.value === 'prompt-experiment') {
     // 如果当前消息有多个响应（不应该发生，但为了安全）
     if (msg.responses.length >= 2) {
       return true
     }
-    
+
     // 检查是否有其他 assistant 消息具有相同的 messageIndex
     // 在提示词实验模式下，同一轮对话的不同变体会有相同的 messageIndex
     if (msg.messageIndex !== undefined) {
-      const sameRoundMessages = messages.value.filter((m: Msg) => 
-        m.type === 'assistant' && 
+      const sameRoundMessages = messages.value.filter((m: Msg) =>
+        m.type === 'assistant' &&
         m.messageIndex === msg.messageIndex &&
-        m.responses && 
+        m.responses &&
         m.responses.length > 0 &&
         m.responses.every((r: any) => r.done)
       )
-      
+
       // 如果有2个或更多同一轮对话的响应
       if (sameRoundMessages.length >= 2) {
         // 找到当前消息在同一轮对话中的位置
@@ -2024,17 +2578,17 @@ const shouldShowRating = (msg: Msg, msgIndex: number) => {
             .map((m: Msg) => m.responses?.[0]?.variantIndex)
             .filter((idx: number | undefined) => idx !== undefined)
             .sort((a: number, b: number) => a - b)
-          
+
           // 如果当前消息是最后一个变体（variantIndex 最大），才显示评分按钮
           const maxVariantIndex = Math.max(...variantIndices)
           return currentVariantIndex === maxVariantIndex
         }
       }
     }
-    
+
     return false
   }
-  
+
   return false
 }
 
@@ -2064,7 +2618,7 @@ const isModelSelected = (msg: Msg, modelName: string, modelIndex: number) => {
 // 判断变体按钮是否应该被选中（提示词实验模式）
 const isVariantSelected = (msg: Msg, variantIndex: number | undefined, respIndex: number) => {
   if (!msg.rating) return false
-  
+
   const rating = msg.rating
   // 对于提示词实验模式，使用variantIndex来判断
   if (variantIndex !== undefined) {
@@ -2078,7 +2632,7 @@ const isVariantSelected = (msg: Msg, variantIndex: number | undefined, respIndex
       }
     }
   }
-  
+
   return false
 }
 
@@ -2089,7 +2643,7 @@ const handleRating = async (msgIndex: number, ratingType: string, winnerModelNam
     return
   }
 
-  const conversationId = route.query.conversationId as string
+  const conversationId = (route.query.conversationId as string) || currentConversationId.value
   if (!conversationId) {
     message.warning('请先开始对话')
     return
@@ -2141,6 +2695,14 @@ const handleRating = async (msgIndex: number, ratingType: string, winnerModelNam
           }
         }
       }
+      // Battle 模式：评分成功后自动揭晓该轮模型
+      if (currentMode.value === 'battle' && msg.messageIndex !== undefined) {
+        revealedMessageIndexes.value.add(msg.messageIndex)
+      }
+      // Battle 模式下确保有模型映射（用于显示真实模型名）
+      if (currentMode.value === 'battle' && conversationId) {
+        ensureBattleModelMapping(conversationId)
+      }
       // 强制触发响应式更新
       messages.value = [...messages.value]
       await nextTick()
@@ -2152,21 +2714,71 @@ const handleRating = async (msgIndex: number, ratingType: string, winnerModelNam
   }
 }
 
+let loadingRatings = false
+let loadingRatingsConversationId: string | null = null
+const loadRatings = async (conversationId: string) => {
+  if (loadingRatings && loadingRatingsConversationId === conversationId) {
+    return
+  }
+
+  loadingRatings = true
+  loadingRatingsConversationId = conversationId
+
+  try {
+    const res: any = await getRatingsByConversationId(conversationId)
+    if (res.data && res.data.code === 0 && res.data.data) {
+      const ratings = res.data.data as RatingVO[]
+      const ratingMap = new Map<number, RatingVO>()
+      ratings.forEach(rating => {
+        ratingMap.set(rating.messageIndex, rating)
+      })
+
+      // Battle 模式：有评分的轮次视为已揭晓
+      if (currentMode.value === 'battle') {
+        revealedMessageIndexes.value.clear()
+        ratings.forEach(rating => {
+          revealedMessageIndexes.value.add(rating.messageIndex)
+        })
+      }
+
+      for (let i = 0; i < messages.value.length; i++) {
+        const msg = messages.value[i]
+        if (msg.type === 'assistant' && msg.messageIndex !== undefined) {
+          const rating = ratingMap.get(msg.messageIndex)
+          if (rating) {
+            messages.value[i] = {
+              ...messages.value[i],
+              rating: rating
+            }
+          }
+        }
+      }
+      messages.value = [...messages.value]
+      console.log('📊 评分信息加载完成，已关联的消息数:', ratings.length)
+    }
+  } catch (error) {
+    console.error('加载评分失败:', error)
+  } finally {
+    loadingRatings = false
+    loadingRatingsConversationId = null
+  }
+}
+
 // 获取同一轮对话的所有变体消息（提示词实验模式）
 const getSameRoundVariantMessages = (msg: Msg, msgIndex: number) => {
   if (!msg || msg.messageIndex === undefined) {
     return []
   }
-  
+
   // 找到所有具有相同 messageIndex 的 assistant 消息
-  const sameRoundMessages = messages.value.filter((m: Msg) => 
-    m.type === 'assistant' && 
+  const sameRoundMessages = messages.value.filter((m: Msg) =>
+    m.type === 'assistant' &&
     m.messageIndex === msg.messageIndex &&
-    m.responses && 
+    m.responses &&
     m.responses.length > 0 &&
     m.responses.every((r: any) => r.done)
   )
-  
+
   // 提取每个消息的变体信息
   return sameRoundMessages.map((m: Msg) => {
     const resp = m.responses?.[0]
@@ -2182,29 +2794,29 @@ const isVariantSelectedForRound = (msg: Msg, variantIndex: number | undefined) =
   if (variantIndex === undefined) {
     return false
   }
-  
+
   // 在提示词实验模式下，同一轮对话的多个消息有相同的 messageIndex
   // 需要从同一轮对话的所有消息中查找评分信息
   if (msg.messageIndex !== undefined) {
     // 找到同一轮对话的所有消息，查找评分信息
-    const sameRoundMessages = messages.value.filter((m: Msg) => 
-      m.type === 'assistant' && 
+    const sameRoundMessages = messages.value.filter((m: Msg) =>
+      m.type === 'assistant' &&
       m.messageIndex === msg.messageIndex
     )
-    
+
     // 从同一轮对话的消息中查找评分信息（可能在任何一条消息上）
     const rating = sameRoundMessages.find((m: Msg) => m.rating)?.rating
-    
+
     if (!rating) {
       return false
     }
-    
+
     // 在提示词实验模式下，直接比较 winnerVariantIndex
     if (rating.ratingType === 'model_better' && rating.winnerVariantIndex !== undefined && rating.winnerVariantIndex !== null) {
       return rating.winnerVariantIndex === variantIndex
     }
   }
-  
+
   return false
 }
 
@@ -2213,13 +2825,13 @@ const handleVariantRatingForRound = async (msg: Msg, variantIndex: number | unde
   if (!msg || msg.type !== 'assistant' || variantIndex === undefined) {
     return
   }
-  
+
   const conversationId = route.query.conversationId as string
   if (!conversationId) {
     message.warning('请先开始对话')
     return
   }
-  
+
   try {
     // 提交评分，直接使用 variantIndex
     const res: any = await addRating({
@@ -2231,14 +2843,14 @@ const handleVariantRatingForRound = async (msg: Msg, variantIndex: number | unde
       winnerVariantIndex: variantIndex,  // 直接使用 variantIndex
       loserVariantIndex: undefined
     })
-    
+
     if (res.data && res.data.code === 0) {
       // 更新所有同一轮对话的消息的评分信息
-      const sameRoundMessages = messages.value.filter((m: Msg) => 
-        m.type === 'assistant' && 
+      const sameRoundMessages = messages.value.filter((m: Msg) =>
+        m.type === 'assistant' &&
         m.messageIndex === msg.messageIndex
       )
-      
+
       sameRoundMessages.forEach((m: Msg) => {
         m.rating = {
           id: '',
@@ -2253,7 +2865,7 @@ const handleVariantRatingForRound = async (msg: Msg, variantIndex: number | unde
           createTime: new Date().toISOString()
         } as RatingVO
       })
-      
+
       // 强制触发响应式更新
       messages.value = [...messages.value]
       await nextTick()
@@ -2286,13 +2898,13 @@ const handleVariantRating = async (msgIndex: number, variantIndex: number | unde
 // 监听路由参数变化
 watch(() => route.query.conversationId, (newId, oldId) => {
   console.log('🔄 conversationId变化:', oldId, '->', newId, 'isLoading:', isLoading.value)
-  
+
   // 如果正在加载中（流式传输），不要加载历史，避免清空正在显示的消息
   if (isLoading.value) {
     console.log('⏸️ 正在流式传输，跳过加载历史会话')
     return
   }
-  
+
   if (newId && newId !== oldId) {
     console.log('📥 加载历史会话')
     loadConversationHistory()
@@ -2304,12 +2916,26 @@ watch(() => route.query.conversationId, (newId, oldId) => {
     variants.value = ['', '']  // 清除提示词变体输入框
     currentConversationId.value = undefined
     activePreviewTab.value = 0
+    // 清空battle模式相关状态
+    revealed.value = false
+    modelMapping.value = {}
+    revealedMessageIndexes.value.clear()
   }
 }, { immediate: true })
 
 onMounted(() => {
   loadModels()
   loadConversations()
+
+  if (route.query.mode === 'battle') {
+    currentMode.value = 'battle'
+  }
+
+  // 如果URL中有conversationId，加载历史（watch可能不会触发，因为newId和oldId可能相同）
+  if (route.query.conversationId && !isLoading.value) {
+    console.log('📥 onMounted时检测到conversationId，加载历史会话:', route.query.conversationId)
+    loadConversationHistory()
+  }
 })
 </script>
 
@@ -2409,14 +3035,17 @@ onMounted(() => {
 }
 
 .history-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 8px 12px;
+  font-size: 13px;
+  color: #374151;
   border-radius: 6px;
   cursor: pointer;
-  transition: background 0.15s;
   margin-bottom: 2px;
+  transition: background 0.15s;
 }
 
 .history-item:hover {
@@ -2437,7 +3066,90 @@ onMounted(() => {
   color: #4f46e5;
 }
 
+.conversation-type-icon {
+  width: 36px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.model-logos {
+  width: 36px;
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.model-logo {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  object-fit: contain;
+}
+
+.more-models {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  font-size: 9px;
+  color: #6b7280;
+  background: #e5e7eb;
+  border-radius: 2px;
+  padding: 0 3px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.more-models:hover {
+  background: #d1d5db;
+  color: #374151;
+}
+
+.all-models-popup {
+  max-width: 250px;
+  padding: 4px 0;
+}
+
+.popup-model-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.popup-model-item:hover {
+  background: #f3f4f6;
+}
+
+.popup-model-logo {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.popup-model-name {
+  font-size: 13px;
+  color: #374151;
+  font-weight: 500;
+}
+
 .history-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
   font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3501,44 +4213,54 @@ onMounted(() => {
 
 /* 评分样式 */
 .rating-section {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid #e5e7eb;
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+  width: 100%;
 }
 
 .rating-buttons {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
 }
 
 .rating-btn {
-  padding: 6px 14px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
+  padding: 10px 20px;
   background: #ffffff;
-  color: #374151;
-  font-size: 13px;
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
   font-weight: 500;
+  color: #374151;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.2s;
+  white-space: nowrap;
 }
 
 .rating-btn:hover {
   background: #f3f4f6;
   border-color: #9ca3af;
+  transform: translateY(-1px);
+}
+
+.rating-btn:active {
+  transform: translateY(0);
 }
 
 .rating-btn.rating-selected {
-  background: #4f46e5;
-  border-color: #4f46e5;
+  background: #1890ff;
+  border-color: #1890ff;
   color: #ffffff;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.3);
 }
 
 .rating-btn.rating-selected:hover {
-  background: #4338ca;
-  border-color: #4338ca;
+  background: #40a9ff;
+  border-color: #40a9ff;
 }
 
 /* 优化结果样式 */
@@ -3598,5 +4320,33 @@ onMounted(() => {
   white-space: pre-wrap;
   word-break: break-word;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+.anonymous-model-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 200px;
+  height: 32px;
+  padding: 0 12px;
+  background: #f5f5f5;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #595959;
+  flex-shrink: 0;
+}
+
+.real-model-name {
+  color: #8c8c8c;
+  font-size: 12px;
+  margin-left: 8px;
+}
+
+.real-model-name-in-tag {
+  color: #8c8c8c;
+  font-size: 12px;
+  margin-left: 6px;
+  font-weight: 400;
 }
 </style>
