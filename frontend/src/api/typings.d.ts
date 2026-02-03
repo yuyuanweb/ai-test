@@ -170,6 +170,10 @@ declare namespace API {
     id?: number
   }
 
+  type DeleteConversationRequest = {
+    id?: string
+  }
+
   type getConversationMessagesParams = {
     conversationId: string
   }

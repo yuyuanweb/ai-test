@@ -1,4 +1,5 @@
 import { useLoginUserStore } from '@/stores/loginUser'
+import { useLoginModalStore } from '@/stores/loginModal'
 import { message } from 'ant-design-vue'
 import router from '@/router'
 
@@ -10,6 +11,7 @@ let firstFetchLoginUser = true
  */
 router.beforeEach(async (to, from, next) => {
   const loginUserStore = useLoginUserStore()
+  const loginModalStore = useLoginModalStore()
   let loginUser = loginUserStore.loginUser
   // 确保页面刷新，首次加载时，能够等后端返回用户信息后再校验权限
   if (firstFetchLoginUser) {
@@ -19,9 +21,15 @@ router.beforeEach(async (to, from, next) => {
   }
   const toUrl = to.fullPath
   if (toUrl.startsWith('/admin')) {
-    if (!loginUser || loginUser.userRole !== 'admin') {
+    if (!loginUser || !loginUser.id) {
+      message.warning('请先登录')
+      loginModalStore.openModal('login')
+      next(false)
+      return
+    }
+    if (loginUser.userRole !== 'admin') {
       message.error('没有权限')
-      next(`/user/login?redirect=${to.fullPath}`)
+      next('/')
       return
     }
   }

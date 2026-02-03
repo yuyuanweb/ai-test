@@ -1,6 +1,6 @@
 spring:
   application:
-    name: springboot-init
+    name: ai-test
   profiles:
     active: local
   # 文件上传配置

@@ -1,13 +1,23 @@
 <script setup lang="ts">
 import { useLoginUserStore } from '@/stores/loginUser'
+import { useLoginModalStore } from '@/stores/loginModal'
 import { useRouter } from 'vue-router'
 import { SwapOutlined, ExperimentOutlined } from '@ant-design/icons-vue'
 
 const loginUserStore = useLoginUserStore()
+const loginModalStore = useLoginModalStore()
 const router = useRouter()
 
 const navigateTo = (path: string) => {
   router.push(path)
+}
+
+const openLoginModal = () => {
+  loginModalStore.openModal('login')
+}
+
+const openRegisterModal = () => {
+  loginModalStore.openModal('register')
 }
 </script>
 
@@ -30,8 +40,8 @@ const navigateTo = (path: string) => {
             欢迎回来，{{ loginUserStore.loginUser.userName }}！开始你的AI模型评测之旅吧。
           </p>
           <p v-else>
-            请先 <router-link to="/user/login">登录</router-link> 或
-            <router-link to="/user/register">注册</router-link> 开始使用
+            请先 <a @click="openLoginModal" class="link-btn">登录</a> 或
+            <a @click="openRegisterModal" class="link-btn">注册</a> 开始使用
           </p>
         </a-card>
       </div>
@@ -178,6 +188,16 @@ const navigateTo = (path: string) => {
 
 .feature-tags {
   margin-top: 12px;
+}
+
+.link-btn {
+  color: #1890ff;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  color: #40a9ff;
+  text-decoration: underline;
 }
 
 /* 响应式设计 */

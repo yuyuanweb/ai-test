@@ -39,11 +39,16 @@
             </a-dropdown>
           </div>
           <div v-else>
-            <a-button type="primary" href="/user/login">登录</a-button>
+            <a-space>
+              <a-button type="primary" @click="openLoginModal('login')">登录</a-button>
+              <a-button @click="openLoginModal('register')">注册</a-button>
+            </a-space>
           </div>
         </div>
       </a-col>
     </a-row>
+    <!-- 登录/注册弹窗 -->
+    <LoginModal />
   </a-layout-header>
 </template>
 
@@ -52,13 +57,20 @@ import { computed, h, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { type MenuProps, message } from 'ant-design-vue'
 import { useLoginUserStore } from '@/stores/loginUser.ts'
+import { useLoginModalStore } from '@/stores/loginModal.ts'
 import { userLogout } from '@/api/userController.ts'
 import { LogoutOutlined, HomeOutlined, SwapOutlined, ExperimentOutlined } from '@ant-design/icons-vue'
+import LoginModal from '@/components/LoginModal.vue'
 
 const loginUserStore = useLoginUserStore()
+const loginModalStore = useLoginModalStore()
 const router = useRouter()
 // 当前选中菜单
 const selectedKeys = ref<string[]>(['/'])
+
+const openLoginModal = (tab: 'login' | 'register' = 'login') => {
+  loginModalStore.openModal(tab)
+}
 // 监听路由变化，更新当前选中菜单
 router.afterEach((to, from, next) => {
   selectedKeys.value = [to.path]
@@ -126,7 +138,6 @@ const doLogout = async () => {
       userName: '未登录',
     })
     message.success('退出登录成功')
-    await router.push('/user/login')
   } else {
     message.error('退出登录失败，' + res.data.message)
   }
