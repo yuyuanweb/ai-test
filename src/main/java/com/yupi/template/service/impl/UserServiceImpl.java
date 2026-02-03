@@ -11,6 +11,7 @@ import com.yupi.template.model.dto.user.UserQueryRequest;
 import com.yupi.template.model.entity.User;
 import com.yupi.template.mapper.UserMapper;
 import com.yupi.template.model.enums.UserRoleEnum;
+import com.yupi.template.mapper.ConversationMessageMapper;
 import com.yupi.template.mapper.ModelMapper;
 import com.yupi.template.mapper.UserModelUsageMapper;
 import com.yupi.template.model.entity.UserModelUsage;
@@ -23,6 +24,8 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,6 +46,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     @Resource
     private UserModelUsageMapper userModelUsageMapper;
+
+    @Resource
+    private ConversationMessageMapper conversationMessageMapper;
 
     @Override
     public long userRegister(String userAccount, String userPassword, String checkPassword) {
@@ -213,7 +219,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         List<UserModelUsage> userModelUsages = userModelUsageMapper.selectListByQuery(userModelUsageWrapper);
 
         Long totalTokens = 0L;
-        java.math.BigDecimal totalCost = java.math.BigDecimal.ZERO;
+        BigDecimal totalCost = BigDecimal.ZERO;
 
         if (CollUtil.isNotEmpty(userModelUsages)) {
             for (UserModelUsage usage : userModelUsages) {
@@ -228,6 +234,47 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         statistics.setTotalTokens(totalTokens);
         statistics.setTotalCost(totalCost);
+
+        // 查询今日花费和本月花费
+        BigDecimal todayCost = conversationMessageMapper.selectTodayCostByUserId(userId);
+        BigDecimal monthCost = conversationMessageMapper.selectMonthCostByUserId(userId);
+        statistics.setTodayCost(todayCost != null ? todayCost : BigDecimal.ZERO);
+        statistics.setMonthCost(monthCost != null ? monthCost : BigDecimal.ZERO);
+
+        // 获取用户的预算配置
+        User user = this.getById(userId);
+        if (user != null) {
+            BigDecimal dailyBudget = user.getDailyBudget();
+            BigDecimal monthlyBudget = user.getMonthlyBudget();
+            Integer alertThreshold = user.getBudgetAlertThreshold();
+
+            statistics.setDailyBudget(dailyBudget);
+            statistics.setMonthlyBudget(monthlyBudget);
+            statistics.setBudgetAlertThreshold(alertThreshold != null ? alertThreshold : 80);
+
+            // 计算预算使用百分比
+            if (dailyBudget != null && dailyBudget.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal dailyUsagePercent = statistics.getTodayCost()
+                        .multiply(new BigDecimal("100"))
+                        .divide(dailyBudget, 2, RoundingMode.HALF_UP);
+                statistics.setDailyBudgetUsagePercent(dailyUsagePercent);
+                statistics.setDailyBudgetAlert(dailyUsagePercent.compareTo(new BigDecimal(statistics.getBudgetAlertThreshold())) >= 0);
+            } else {
+                statistics.setDailyBudgetUsagePercent(BigDecimal.ZERO);
+                statistics.setDailyBudgetAlert(false);
+            }
+
+            if (monthlyBudget != null && monthlyBudget.compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal monthlyUsagePercent = statistics.getMonthCost()
+                        .multiply(new BigDecimal("100"))
+                        .divide(monthlyBudget, 2, RoundingMode.HALF_UP);
+                statistics.setMonthlyBudgetUsagePercent(monthlyUsagePercent);
+                statistics.setMonthlyBudgetAlert(monthlyUsagePercent.compareTo(new BigDecimal(statistics.getBudgetAlertThreshold())) >= 0);
+            } else {
+                statistics.setMonthlyBudgetUsagePercent(BigDecimal.ZERO);
+                statistics.setMonthlyBudgetAlert(false);
+            }
+        }
 
         return statistics;
     }

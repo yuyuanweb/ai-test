@@ -1,5 +1,6 @@
 package com.yupi.template.service.impl;
 
+import cn.hutool.json.JSONUtil;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.yupi.template.exception.BusinessException;
 import com.yupi.template.exception.ErrorCode;
@@ -9,13 +10,17 @@ import com.yupi.template.model.dto.evaluation.EvaluationResult;
 import com.yupi.template.model.dto.evaluation.JudgeScore;
 import com.yupi.template.model.entity.Model;
 import com.yupi.template.service.AIScoringService;
+import com.yupi.template.service.UserModelUsageService;
 import com.yupi.template.utils.AiRetryHelper;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -68,11 +73,17 @@ public class AIScoringServiceImpl implements AIScoringService {
     @Resource
     private ModelMapper modelMapper;
 
+    @Resource
+    private UserModelUsageService userModelUsageService;
+
+    @Resource
+    private com.yupi.template.service.BudgetService budgetService;
+
     private static final int MAX_JUDGES = 3;
     private static final int MIN_JUDGES = 2;
 
     @Override
-    public EvaluationResult score(String question, String modelResponse) {
+    public EvaluationResult score(String question, String modelResponse, Long userId) {
         if (question == null || question.trim().isEmpty()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "问题不能为空");
         }
@@ -85,10 +96,10 @@ public class AIScoringServiceImpl implements AIScoringService {
                     .replace("{question}", question)
                     .replace("{model_response}", modelResponse);
 
-            log.info("开始AI评分: questionLength={}, responseLength={}", 
-                    question.length(), modelResponse.length());
+            log.info("开始AI评分: questionLength={}, responseLength={}, userId={}", 
+                    question.length(), modelResponse.length(), userId);
 
-            EvaluationResult result = AiRetryHelper.runWithRetry(() ->
+            ChatResponse chatResponse = AiRetryHelper.runWithRetry(() ->
                     chatClient.prompt()
                             .user(scoringPrompt)
                             .options(OpenAiChatOptions.builder()
@@ -96,11 +107,20 @@ public class AIScoringServiceImpl implements AIScoringService {
                                     .temperature(0.3)
                                     .build())
                             .call()
-                            .entity(EvaluationResult.class)
+                            .chatResponse()
             );
 
+            String responseContent = chatResponse.getResult().getOutput().getText();
+            EvaluationResult result = responseContent != null
+                    ? JSONUtil.toBean(responseContent, EvaluationResult.class)
+                    : null;
+
+            // 统计评委模型使用量
+            updateUsageStatistics(JUDGE_MODEL, chatResponse, userId);
+
             log.info("AI评分完成: totalScore={}, rating={}", 
-                    result.totalScore(), result.rating());
+                    result != null ? result.totalScore() : null, 
+                    result != null ? result.rating() : null);
 
             return result;
         } catch (Exception e) {
@@ -111,7 +131,7 @@ public class AIScoringServiceImpl implements AIScoringService {
     }
 
     @Override
-    public AIScoreResult scoreWithMultipleJudges(String question, String modelResponse, String testedModelName) {
+    public AIScoreResult scoreWithMultipleJudges(String question, String modelResponse, String testedModelName, Long userId) {
         if (question == null || question.trim().isEmpty()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "问题不能为空");
         }
@@ -123,7 +143,7 @@ public class AIScoringServiceImpl implements AIScoringService {
             List<String> judgeModels = selectJudgeModels(testedModelName);
             if (judgeModels.isEmpty()) {
                 log.warn("未找到可用的评委模型，使用单评委模式: testedModel={}", testedModelName);
-                EvaluationResult singleResult = score(question, modelResponse);
+                EvaluationResult singleResult = score(question, modelResponse, userId);
                 JudgeScore judgeScore = new JudgeScore(
                         "qwen/qwen-plus",
                         singleResult.scores(),
@@ -138,8 +158,8 @@ public class AIScoringServiceImpl implements AIScoringService {
                 );
             }
 
-            log.info("开始多评委交叉验证评分: testedModel={}, judges={}, questionLength={}, responseLength={}",
-                    testedModelName, judgeModels, question.length(), modelResponse.length());
+            log.info("开始多评委交叉验证评分: testedModel={}, judges={}, questionLength={}, responseLength={}, userId={}",
+                    testedModelName, judgeModels, question.length(), modelResponse.length(), userId);
 
             String scoringPrompt = SCORING_PROMPT_TEMPLATE
                     .replace("{question}", question)
@@ -148,7 +168,7 @@ public class AIScoringServiceImpl implements AIScoringService {
             List<CompletableFuture<JudgeScore>> futures = judgeModels.stream()
                     .map(judgeModel -> CompletableFuture.supplyAsync(() -> {
                         try {
-                            EvaluationResult result = AiRetryHelper.runWithRetry(() ->
+                            ChatResponse chatResponse = AiRetryHelper.runWithRetry(() ->
                                     chatClient.prompt()
                                             .user(scoringPrompt)
                                             .options(OpenAiChatOptions.builder()
@@ -156,19 +176,28 @@ public class AIScoringServiceImpl implements AIScoringService {
                                                     .temperature(0.3)
                                                     .build())
                                             .call()
-                                            .entity(EvaluationResult.class)
+                                            .chatResponse()
                             );
 
-                            log.info("评委{}评分完成: totalScore={}, rating={}",
-                                    judgeModel, result.totalScore(), result.rating());
+                            String responseContent = chatResponse.getResult().getOutput().getText();
+                            EvaluationResult result = responseContent != null
+                                    ? JSONUtil.toBean(responseContent, EvaluationResult.class)
+                                    : null;
 
-                            return new JudgeScore(
+                            // 统计评委模型使用量
+                            updateUsageStatistics(judgeModel, chatResponse, userId);
+
+                            log.info("评委{}评分完成: totalScore={}, rating={}",
+                                    judgeModel, result != null ? result.totalScore() : null, 
+                                    result != null ? result.rating() : null);
+
+                            return result != null ? new JudgeScore(
                                     judgeModel,
                                     result.scores(),
                                     result.totalScore(),
                                     result.rating(),
                                     result.comment()
-                            );
+                            ) : null;
                         } catch (Exception e) {
                             log.error("评委{}评分失败: {}", judgeModel, e.getMessage(), e);
                             return null;
@@ -273,5 +302,50 @@ public class AIScoringServiceImpl implements AIScoringService {
                 .orElse(0.0);
 
         return Math.sqrt(variance);
+    }
+
+    /**
+     * 更新模型使用统计
+     */
+    private void updateUsageStatistics(String model, ChatResponse chatResponse, Long userId) {
+        if (userId == null || chatResponse == null) {
+            return;
+        }
+
+        try {
+            int inputTokens = 0;
+            int outputTokens = 0;
+            if (chatResponse.getMetadata() != null && chatResponse.getMetadata().getUsage() != null) {
+                Usage usage = chatResponse.getMetadata().getUsage();
+                inputTokens = usage.getPromptTokens() != null ? usage.getPromptTokens() : 0;
+                outputTokens = usage.getCompletionTokens() != null ? usage.getCompletionTokens() : 0;
+            }
+            int totalTokens = inputTokens + outputTokens;
+
+            if (totalTokens > 0) {
+                BigDecimal cost = calculateCost(model, inputTokens, outputTokens);
+                userModelUsageService.updateUserModelUsage(userId, model, totalTokens, cost);
+                budgetService.addCost(userId, cost);
+                log.debug("AI评分统计: userId={}, model={}, tokens={}, cost={}", userId, model, totalTokens, cost);
+            }
+        } catch (Exception e) {
+            log.warn("更新AI评分统计失败: userId={}, model={}, error={}", userId, model, e.getMessage());
+        }
+    }
+
+    /**
+     * 计算成本（简化版本）
+     */
+    private BigDecimal calculateCost(String model, int inputTokens, int outputTokens) {
+        double inputPrice = 0.001;
+        double outputPrice = 0.002;
+
+        if (model != null && model.contains("qwen")) {
+            inputPrice = 0.0005;
+            outputPrice = 0.001;
+        }
+
+        double cost = (inputTokens * inputPrice + outputTokens * outputPrice) / 1000.0;
+        return BigDecimal.valueOf(cost);
     }
 }

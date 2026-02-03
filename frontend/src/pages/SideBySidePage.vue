@@ -455,7 +455,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { message } from 'ant-design-vue'
+import { message, notification } from 'ant-design-vue'
 import { useLoginUserStore } from '@/stores/loginUser'
 import { useLoginModalStore } from '@/stores/loginModal'
 import {
@@ -1476,22 +1476,39 @@ const sendMessage = async () => {
           if (chunk.done) {
             const allDone = msg.responses.every((r: any) => r.done)
             const doneCount = msg.responses.filter((r: any) => r.done).length
-            console.log(`📊 完成进度: ${doneCount}/${msg.responses.length}`)
+            console.log(`完成进度: ${doneCount}/${msg.responses.length}`)
+
+            // 处理预算预警
+            if (chunk.budgetStatus && chunk.budgetStatus !== 'normal') {
+              const budgetWarningKey = 'budget-warning'
+              if (chunk.budgetStatus === 'exceeded') {
+                notification.error({
+                  key: budgetWarningKey,
+                  message: '预算超出',
+                  description: chunk.budgetMessage || '今日预算已用完，无法继续调用',
+                  duration: 5,
+                })
+              } else if (chunk.budgetStatus === 'warning') {
+                notification.warning({
+                  key: budgetWarningKey,
+                  message: '预算预警',
+                  description: chunk.budgetMessage || '今日预算即将用完，请注意控制',
+                  duration: 4,
+                })
+              }
+            }
 
             if (allDone) {
-              console.log('✅ 所有模型响应完成！')
+              console.log('所有模型响应完成')
               isLoading.value = false
-              // 重置新会话标志
               if (isNewConversation.value) {
-                console.log('🔄 重置新会话标志')
+                console.log('重置新会话标志')
                 isNewConversation.value = false
               }
-              // 所有响应完成后，加载评分信息
               const conversationId = route.query.conversationId as string
               if (conversationId && msg.messageIndex !== undefined) {
                 loadRatings(conversationId)
               }
-              // 所有响应完成后，再次滚动到底部
               scrollToBottom()
             }
           }

@@ -212,6 +212,9 @@ declare namespace API {
     userAvatar?: string
     userProfile?: string
     userRole?: string
+    dailyBudget?: number
+    monthlyBudget?: number
+    budgetAlertThreshold?: number
     createTime?: string
     updateTime?: string
   }
@@ -527,6 +530,9 @@ declare namespace API {
     userAvatar?: string
     userProfile?: string
     userRole?: string
+    dailyBudget?: number
+    monthlyBudget?: number
+    budgetAlertThreshold?: number
   }
 
   type UserVO = {
@@ -536,6 +542,154 @@ declare namespace API {
     userAvatar?: string
     userProfile?: string
     userRole?: string
+    dailyBudget?: number
+    monthlyBudget?: number
+    budgetAlertThreshold?: number
     createTime?: string
+  }
+
+  type UserStatisticsVO = {
+    totalModels?: number
+    totalTokens?: number
+    totalCost?: number
+    todayCost?: number
+    monthCost?: number
+    dailyBudget?: number
+    monthlyBudget?: number
+    budgetAlertThreshold?: number
+    dailyBudgetUsagePercent?: number
+    monthlyBudgetUsagePercent?: number
+    dailyBudgetAlert?: boolean
+    monthlyBudgetAlert?: boolean
+  }
+
+  type BaseResponseUserStatisticsVO = {
+    code?: number
+    data?: UserStatisticsVO
+    message?: string
+  }
+
+  type BudgetStatusVO = {
+    canProceed?: boolean
+    status?: string
+    message?: string
+    todayCost?: number
+    monthCost?: number
+    dailyBudget?: number
+    monthlyBudget?: number
+    dailyUsagePercent?: number
+    monthlyUsagePercent?: number
+  }
+
+  type BaseResponseBudgetStatusVO = {
+    code?: number
+    data?: BudgetStatusVO
+    message?: string
+  }
+
+  type CostStatisticsVO = {
+    totalCost?: number
+    todayCost?: number
+    weekCost?: number
+    monthCost?: number
+    costByModel?: ModelCostVO[]
+    costTrend?: DailyCostVO[]
+  }
+
+  type ModelCostVO = {
+    modelName?: string
+    cost?: number
+    percentage?: number
+  }
+
+  type DailyCostVO = {
+    date?: string
+    cost?: number
+  }
+
+  type BaseResponseCostStatisticsVO = {
+    code?: number
+    data?: CostStatisticsVO
+    message?: string
+  }
+
+  type UsageStatisticsVO = {
+    totalApiCalls?: number
+    todayApiCalls?: number
+    totalTokens?: number
+    totalInputTokens?: number
+    totalOutputTokens?: number
+    todayTokens?: number
+    usageByModel?: ModelUsageVO[]
+    usageTrend?: DailyUsageVO[]
+  }
+
+  type ModelUsageVO = {
+    modelName?: string
+    callCount?: number
+    tokens?: number
+    percentage?: number
+  }
+
+  type DailyUsageVO = {
+    date?: string
+    apiCalls?: number
+    tokens?: number
+  }
+
+  type BaseResponseUsageStatisticsVO = {
+    code?: number
+    data?: UsageStatisticsVO
+    message?: string
+  }
+
+  type PerformanceStatisticsVO = {
+    avgResponseTime?: number
+    minResponseTime?: number
+    maxResponseTime?: number
+    performanceByModel?: ModelPerformanceVO[]
+  }
+
+  type ModelPerformanceVO = {
+    modelName?: string
+    callCount?: number
+    avgResponseTime?: number
+    minResponseTime?: number
+    maxResponseTime?: number
+    avgInputTokens?: number
+    avgOutputTokens?: number
+  }
+
+  type BaseResponsePerformanceStatisticsVO = {
+    code?: number
+    data?: PerformanceStatisticsVO
+    message?: string
+  }
+
+  type BudgetUpdateRequest = {
+    dailyBudget?: number
+    monthlyBudget?: number
+    alertThreshold?: number
+  }
+
+  type RealtimeCostVO = {
+    todayCost?: number
+    monthCost?: number
+    todayTokens?: number
+    todayApiCalls?: number
+    avgCostPerCall?: number
+    dailyBudget?: number
+    monthlyBudget?: number
+    dailyUsagePercent?: number
+    monthlyUsagePercent?: number
+    budgetStatus?: string
+    budgetMessage?: string
+    alertThreshold?: number
+  }
+
+  type BaseResponseRealtimeCostVO = {
+    code?: number
+    data?: RealtimeCostVO
+    message?: string
   }
 }

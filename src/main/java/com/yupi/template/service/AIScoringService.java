@@ -15,9 +15,10 @@ public interface AIScoringService {
      *
      * @param question 问题
      * @param modelResponse 模型回答
+     * @param userId 用户ID（用于统计模型使用量）
      * @return 评分结果
      */
-    EvaluationResult score(String question, String modelResponse);
+    EvaluationResult score(String question, String modelResponse, Long userId);
 
     /**
      * 对模型回答进行多评委交叉验证评分
@@ -25,7 +26,8 @@ public interface AIScoringService {
      * @param question 问题
      * @param modelResponse 模型回答
      * @param testedModelName 被测试的模型名称（用于排除，避免自己评自己）
+     * @param userId 用户ID（用于统计模型使用量）
      * @return 多评委评分结果
      */
-    AIScoreResult scoreWithMultipleJudges(String question, String modelResponse, String testedModelName);
+    AIScoreResult scoreWithMultipleJudges(String question, String modelResponse, String testedModelName, Long userId);
 }

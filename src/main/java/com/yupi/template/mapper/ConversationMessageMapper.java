@@ -5,6 +5,7 @@ import com.yupi.template.model.entity.ConversationMessage;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -31,4 +32,92 @@ public interface ConversationMessageMapper extends BaseMapper<ConversationMessag
             "WHERE conversationId = #{conversationId} AND isDelete = 0 " +
             "ORDER BY messageIndex ASC")
     List<ConversationMessage> selectByConversationIdWithImages(@Param("conversationId") String conversationId);
+
+    /**
+     * 查询用户今日花费
+     *
+     * @param userId 用户ID
+     * @return 今日花费
+     */
+    @Select("SELECT COALESCE(SUM(cost), 0) FROM conversation_message " +
+            "WHERE userId = #{userId} AND isDelete = 0 " +
+            "AND DATE(createTime) = CURDATE()")
+    BigDecimal selectTodayCostByUserId(@Param("userId") Long userId);
+
+    /**
+     * 查询用户本月花费
+     *
+     * @param userId 用户ID
+     * @return 本月花费
+     */
+    @Select("SELECT COALESCE(SUM(cost), 0) FROM conversation_message " +
+            "WHERE userId = #{userId} AND isDelete = 0 " +
+            "AND YEAR(createTime) = YEAR(CURDATE()) " +
+            "AND MONTH(createTime) = MONTH(CURDATE())")
+    BigDecimal selectMonthCostByUserId(@Param("userId") Long userId);
+
+    /**
+     * 查询用户本周花费
+     *
+     * @param userId 用户ID
+     * @return 本周花费
+     */
+    @Select("SELECT COALESCE(SUM(cost), 0) FROM conversation_message " +
+            "WHERE userId = #{userId} AND isDelete = 0 " +
+            "AND YEARWEEK(createTime, 1) = YEARWEEK(CURDATE(), 1)")
+    BigDecimal selectWeekCostByUserId(@Param("userId") Long userId);
+
+    /**
+     * 查询用户今日API调用次数
+     *
+     * @param userId 用户ID
+     * @return 今日调用次数
+     */
+    @Select("SELECT COUNT(*) FROM conversation_message " +
+            "WHERE userId = #{userId} AND isDelete = 0 " +
+            "AND role = 'assistant' " +
+            "AND DATE(createTime) = CURDATE()")
+    Long selectTodayApiCallsByUserId(@Param("userId") Long userId);
+
+    /**
+     * 查询用户总API调用次数
+     *
+     * @param userId 用户ID
+     * @return 总调用次数
+     */
+    @Select("SELECT COUNT(*) FROM conversation_message " +
+            "WHERE userId = #{userId} AND isDelete = 0 " +
+            "AND role = 'assistant'")
+    Long selectTotalApiCallsByUserId(@Param("userId") Long userId);
+
+    /**
+     * 查询用户今日Token消耗
+     *
+     * @param userId 用户ID
+     * @return 今日Token消耗
+     */
+    @Select("SELECT COALESCE(SUM(inputTokens + outputTokens), 0) FROM conversation_message " +
+            "WHERE userId = #{userId} AND isDelete = 0 " +
+            "AND DATE(createTime) = CURDATE()")
+    Long selectTodayTokensByUserId(@Param("userId") Long userId);
+
+    /**
+     * 查询用户总Token消耗（输入）
+     *
+     * @param userId 用户ID
+     * @return 总输入Token
+     */
+    @Select("SELECT COALESCE(SUM(inputTokens), 0) FROM conversation_message " +
+            "WHERE userId = #{userId} AND isDelete = 0")
+    Long selectTotalInputTokensByUserId(@Param("userId") Long userId);
+
+    /**
+     * 查询用户总Token消耗（输出）
+     *
+     * @param userId 用户ID
+     * @return 总输出Token
+     */
+    @Select("SELECT COALESCE(SUM(outputTokens), 0) FROM conversation_message " +
+            "WHERE userId = #{userId} AND isDelete = 0")
+    Long selectTotalOutputTokensByUserId(@Param("userId") Long userId);
 }

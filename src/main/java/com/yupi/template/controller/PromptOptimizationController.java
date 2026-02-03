@@ -59,7 +59,8 @@ public class PromptOptimizationController {
         PromptOptimizationVO result = promptOptimizationService.optimizePrompt(
                 request.getOriginalPrompt(),
                 request.getAiResponse(),
-                request.getEvaluationModel()
+                request.getEvaluationModel(),
+                loginUser.getId()
         );
 
         return ResultUtils.success(result);

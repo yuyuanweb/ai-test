@@ -30,6 +30,10 @@
           <FileTextOutlined />
           <span>提示词模板</span>
         </button>
+        <button class="nav-btn" @click="router.push('/statistics')">
+          <BarChartOutlined />
+          <span>数据分析</span>
+        </button>
       </nav>
 
       <!-- 历史对话 -->
@@ -252,6 +256,12 @@
           </div>
           <template #overlay>
             <div class="user-dropdown-content">
+              <!-- 预算预警 -->
+              <div v-if="statistics.dailyBudgetAlert || statistics.monthlyBudgetAlert" class="budget-alert">
+                <WarningOutlined style="color: #faad14" />
+                <span v-if="statistics.dailyBudgetAlert">今日预算已使用 {{ statistics.dailyBudgetUsagePercent?.toFixed(0) }}%</span>
+                <span v-else-if="statistics.monthlyBudgetAlert">本月预算已使用 {{ statistics.monthlyBudgetUsagePercent?.toFixed(0) }}%</span>
+              </div>
               <!-- 统计信息 -->
               <div class="statistics-section">
                 <div class="stat-item">
@@ -265,6 +275,18 @@
                 <div class="stat-item">
                   <div class="stat-label">总花费 (USD)</div>
                   <div class="stat-value">${{ formatCost(statistics.totalCost || 0) }}</div>
+                </div>
+                <div class="stat-item" v-if="statistics.dailyBudget">
+                  <div class="stat-label">今日消耗</div>
+                  <div class="stat-value" :style="{ color: getDailyBudgetColor() }">
+                    ${{ formatCost(statistics.todayCost || 0) }} / ${{ formatCost(statistics.dailyBudget) }}
+                  </div>
+                </div>
+                <div class="stat-item" v-if="statistics.monthlyBudget">
+                  <div class="stat-label">本月消耗</div>
+                  <div class="stat-value" :style="{ color: getMonthlyBudgetColor() }">
+                    ${{ formatCost(statistics.monthCost || 0) }} / ${{ formatCost(statistics.monthlyBudget) }}
+                  </div>
                 </div>
               </div>
               <a-divider style="margin: 8px 0" />
@@ -306,7 +328,7 @@
 import { computed, ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { EditOutlined, LogoutOutlined, SwapOutlined, ExperimentOutlined, ThunderboltOutlined, UnorderedListOutlined, AppstoreOutlined, TrophyOutlined, DeleteOutlined, FileTextOutlined } from '@ant-design/icons-vue'
+import { EditOutlined, LogoutOutlined, SwapOutlined, ExperimentOutlined, ThunderboltOutlined, UnorderedListOutlined, AppstoreOutlined, TrophyOutlined, DeleteOutlined, FileTextOutlined, BarChartOutlined, WarningOutlined } from '@ant-design/icons-vue'
 import { useLoginUserStore } from '@/stores/loginUser'
 import { useLoginModalStore } from '@/stores/loginModal'
 import { userLogout, getUserStatistics } from '@/api/userController'
@@ -450,6 +472,22 @@ const formatNumber = (num: number) => {
 
 const formatCost = (cost: number) => {
   return cost.toFixed(4)
+}
+
+const getDailyBudgetColor = () => {
+  if (!statistics.value.dailyBudget) return '#1890ff'
+  const percent = statistics.value.dailyBudgetUsagePercent || 0
+  if (percent >= 100) return '#ff4d4f'
+  if (percent >= 80) return '#faad14'
+  return '#52c41a'
+}
+
+const getMonthlyBudgetColor = () => {
+  if (!statistics.value.monthlyBudget) return '#1890ff'
+  const percent = statistics.value.monthlyBudgetUsagePercent || 0
+  if (percent >= 100) return '#ff4d4f'
+  if (percent >= 80) return '#faad14'
+  return '#52c41a'
 }
 
 const handleNewChat = () => {
@@ -902,6 +940,17 @@ watch(
 .user-dropdown-content {
   min-width: 240px;
   background: #fff;
+}
+
+.budget-alert {
+  padding: 8px 16px;
+  background: #fffbe6;
+  border-bottom: 1px solid #ffe58f;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #d48806;
 }
 
 .statistics-section {
