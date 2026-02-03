@@ -62,6 +62,51 @@
           show-count
         />
       </a-form-item>
+
+      <a-divider>预算设置</a-divider>
+
+      <!-- 日预算 -->
+      <a-form-item label="日预算" name="dailyBudget">
+        <a-input-number
+          v-model:value="formState.dailyBudget"
+          placeholder="不限制"
+          :min="0"
+          :max="10000"
+          :precision="2"
+          :step="0.1"
+          style="width: 100%"
+        >
+          <template #addonAfter>USD</template>
+        </a-input-number>
+        <div class="field-tips">每日API调用成本上限，留空表示不限制</div>
+      </a-form-item>
+
+      <!-- 月预算 -->
+      <a-form-item label="月预算" name="monthlyBudget">
+        <a-input-number
+          v-model:value="formState.monthlyBudget"
+          placeholder="不限制"
+          :min="0"
+          :max="100000"
+          :precision="2"
+          :step="1"
+          style="width: 100%"
+        >
+          <template #addonAfter>USD</template>
+        </a-input-number>
+        <div class="field-tips">每月API调用成本上限，留空表示不限制</div>
+      </a-form-item>
+
+      <!-- 预警阈值 -->
+      <a-form-item label="预警阈值" name="budgetAlertThreshold">
+        <a-slider
+          v-model:value="formState.budgetAlertThreshold"
+          :min="50"
+          :max="100"
+          :marks="{ 50: '50%', 80: '80%', 100: '100%' }"
+        />
+        <div class="field-tips">当预算使用达到此比例时会显示预警提示</div>
+      </a-form-item>
     </a-form>
   </a-modal>
 </template>
@@ -129,6 +174,9 @@ const formState = reactive({
   userName: '',
   userAvatar: '',
   userProfile: '',
+  dailyBudget: null as number | null,
+  monthlyBudget: null as number | null,
+  budgetAlertThreshold: 80,
 })
 
 watch(
@@ -141,6 +189,9 @@ watch(
       formState.userName = user.userName || ''
       formState.userAvatar = user.userAvatar || ''
       formState.userProfile = user.userProfile || ''
+      formState.dailyBudget = user.dailyBudget || null
+      formState.monthlyBudget = user.monthlyBudget || null
+      formState.budgetAlertThreshold = user.budgetAlertThreshold || 80
     }
   }
 )
@@ -162,6 +213,9 @@ const handleSubmit = async () => {
       userName: formState.userName,
       userAvatar: formState.userAvatar,
       userProfile: formState.userProfile,
+      dailyBudget: formState.dailyBudget,
+      monthlyBudget: formState.monthlyBudget,
+      budgetAlertThreshold: formState.budgetAlertThreshold,
     })
 
     if (res.data.code === 0) {
@@ -235,5 +289,11 @@ const handleCancel = () => {
 .avatar-tips {
   font-size: 12px;
   color: #999;
+}
+
+.field-tips {
+  font-size: 12px;
+  color: #999;
+  margin-top: 4px;
 }
 </style>

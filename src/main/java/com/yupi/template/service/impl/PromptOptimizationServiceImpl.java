@@ -5,13 +5,17 @@ import com.yupi.template.exception.ErrorCode;
 import com.yupi.template.model.dto.prompt.OptimizationSuggestion;
 import com.yupi.template.model.vo.PromptOptimizationVO;
 import com.yupi.template.service.PromptOptimizationService;
+import com.yupi.template.service.UserModelUsageService;
 import com.yupi.template.utils.AiRetryHelper;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 
 /**
@@ -58,8 +62,14 @@ public class PromptOptimizationServiceImpl implements PromptOptimizationService 
     @Resource
     private ChatClient chatClient;
 
+    @Resource
+    private UserModelUsageService userModelUsageService;
+
+    @Resource
+    private com.yupi.template.service.BudgetService budgetService;
+
     @Override
-    public PromptOptimizationVO optimizePrompt(String originalPrompt, String aiResponse, String evaluationModel) {
+    public PromptOptimizationVO optimizePrompt(String originalPrompt, String aiResponse, String evaluationModel, Long userId) {
         if (originalPrompt == null || originalPrompt.trim().isEmpty()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "原始提示词不能为空");
         }
@@ -78,10 +88,10 @@ public class PromptOptimizationServiceImpl implements PromptOptimizationService 
                     .replace("{originalPrompt}", originalPrompt)
                     .replace("{aiResponseSection}", aiResponseSection);
 
-            log.info("开始提示词优化分析: promptLength={}, hasResponse={}, model={}",
-                    originalPrompt.length(), aiResponse != null && !aiResponse.trim().isEmpty(), model);
+            log.info("开始提示词优化分析: promptLength={}, hasResponse={}, model={}, userId={}",
+                    originalPrompt.length(), aiResponse != null && !aiResponse.trim().isEmpty(), model, userId);
 
-            OptimizationSuggestion suggestion = AiRetryHelper.runWithRetry(() ->
+            ChatResponse chatResponse = AiRetryHelper.runWithRetry(() ->
                     chatClient.prompt()
                             .user(analysisPrompt)
                             .options(OpenAiChatOptions.builder()
@@ -89,12 +99,35 @@ public class PromptOptimizationServiceImpl implements PromptOptimizationService 
                                     .temperature(0.3)
                                     .build())
                             .call()
-                            .entity(OptimizationSuggestion.class)
+                            .chatResponse()
             );
 
-            log.info("提示词优化分析完成: issuesCount={}, improvementsCount={}",
+            String responseContent = chatResponse.getResult().getOutput().getText();
+            OptimizationSuggestion suggestion = responseContent != null
+                    ? cn.hutool.json.JSONUtil.toBean(responseContent, OptimizationSuggestion.class)
+                    : new OptimizationSuggestion(new ArrayList<>(), "", new ArrayList<>());
+
+            // 统计模型使用量
+            int inputTokens = 0;
+            int outputTokens = 0;
+            if (chatResponse.getMetadata() != null && chatResponse.getMetadata().getUsage() != null) {
+                Usage usage = chatResponse.getMetadata().getUsage();
+                inputTokens = usage.getPromptTokens() != null ? usage.getPromptTokens() : 0;
+                outputTokens = usage.getCompletionTokens() != null ? usage.getCompletionTokens() : 0;
+            }
+            int totalTokens = inputTokens + outputTokens;
+
+            if (userId != null && totalTokens > 0) {
+                BigDecimal cost = calculateCost(model, inputTokens, outputTokens);
+                userModelUsageService.updateUserModelUsage(userId, model, totalTokens, cost);
+                budgetService.addCost(userId, cost);
+                log.info("提示词优化统计: userId={}, model={}, tokens={}, cost={}", userId, model, totalTokens, cost);
+            }
+
+            log.info("提示词优化分析完成: issuesCount={}, improvementsCount={}, tokens={}",
                     suggestion.issues() != null ? suggestion.issues().size() : 0,
-                    suggestion.improvements() != null ? suggestion.improvements().size() : 0);
+                    suggestion.improvements() != null ? suggestion.improvements().size() : 0,
+                    totalTokens);
 
             PromptOptimizationVO vo = new PromptOptimizationVO();
             vo.setIssues(suggestion.issues() != null ? suggestion.issues() : new ArrayList<>());
@@ -107,5 +140,21 @@ public class PromptOptimizationServiceImpl implements PromptOptimizationService 
             throw new BusinessException(ErrorCode.SYSTEM_ERROR,
                     "提示词优化分析失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
         }
+    }
+
+    /**
+     * 计算成本（简化版本，使用默认价格）
+     */
+    private BigDecimal calculateCost(String model, int inputTokens, int outputTokens) {
+        double inputPrice = 0.001;
+        double outputPrice = 0.002;
+
+        if (model != null && model.contains("qwen")) {
+            inputPrice = 0.0005;
+            outputPrice = 0.001;
+        }
+
+        double cost = (inputTokens * inputPrice + outputTokens * outputPrice) / 1000.0;
+        return BigDecimal.valueOf(cost);
     }
 }

@@ -1798,6 +1798,7 @@ public class ConversationServiceImpl implements ConversationService {
 
         // 更新对话统计
         updateConversationStats(conversationId, inputTokens + outputTokens, cost);
+
         // 更新模型使用统计（全局）
         modelService.updateModelUsage(modelName, inputTokens + outputTokens, cost);
 

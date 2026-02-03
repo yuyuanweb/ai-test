@@ -74,6 +74,9 @@ public class TestWorker {
     @Resource
     private MeterRegistry meterRegistry;
 
+    @Resource
+    private com.yupi.template.service.BudgetService budgetService;
+
     @RabbitListener(queues = RabbitMQConstant.TEST_QUEUE)
     public void processSubTask(SubTaskMessage subTask) {
         log.info("开始处理子任务: taskId={}, model={}, prompt={}", 
@@ -218,6 +221,11 @@ public class TestWorker {
 
             testResultMapper.insert(testResult);
 
+            // 累加用户消耗到Redis
+            if (cost != null && cost.compareTo(BigDecimal.ZERO) > 0) {
+                budgetService.addCost(subTask.getUserId(), cost);
+            }
+
             // AI评分（如果启用）
             boolean enableAiScoring = checkEnableAiScoring(task);
             if (enableAiScoring) {
@@ -228,7 +236,8 @@ public class TestWorker {
                     AIScoreResult aiScoreResult = aiScoringService.scoreWithMultipleJudges(
                             subTask.getPromptContent(),
                             outputText,
-                            subTask.getModelName()
+                            subTask.getModelName(),
+                            subTask.getUserId()
                     );
 
                     String aiScoreJson = JSONUtil.toJsonStr(aiScoreResult);

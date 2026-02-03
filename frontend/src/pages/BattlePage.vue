@@ -421,8 +421,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { message } from 'ant-design-vue'
+import { message, notification } from 'ant-design-vue'
 import { useLoginUserStore } from '@/stores/loginUser'
+import { useLoginModalStore } from '@/stores/loginModal'
 import {
   SearchOutlined,
   SendOutlined,
@@ -457,6 +458,7 @@ interface Msg {
 const router = useRouter()
 const route = useRoute()
 const loginUserStore = useLoginUserStore()
+const loginModalStore = useLoginModalStore()
 const loginUser = computed(() => loginUserStore.loginUser)
 
 const currentMode = ref('battle')
@@ -838,7 +840,7 @@ const sendMessage = async () => {
 
   if (!loginUser.value.id) {
     message.warning('请先登录')
-    router.push('/user/login')
+    loginModalStore.openModal('login')
     return
   }
 
@@ -1027,7 +1029,7 @@ const sendMessage = async () => {
     responses: initialResponses,
     messageIndex: Math.floor(assistantMsgIndex / 2)
   }
-
+  
   messages.value.push(assistantMsg)
 
   console.log('✅ 添加后消息数:', messages.value.length, 'Assistant在索引:', assistantMsgIndex)
@@ -1038,7 +1040,7 @@ const sendMessage = async () => {
   scrollToBottom()
 
   await nextTick()
-
+  
   console.log('✅ nextTick后消息数:', messages.value.length, 'Assistant在索引:', assistantMsgIndex)
   console.log('✅ nextTick后验证消息:', messages.value.map((m: any, i: number) => ({ index: i, type: m.type, messageIndex: m.messageIndex })))
 
@@ -1070,7 +1072,7 @@ const sendMessage = async () => {
             currentMessagesCount: messages.value.length,
             assistantMsgIndex
           })
-
+          
           if (chunk.conversationId && !route.query.conversationId) {
             console.log('🔄 延迟更新路由，添加conversationId:', chunk.conversationId, '当前消息数:', messages.value.length)
             setTimeout(() => {
@@ -1087,9 +1089,9 @@ const sendMessage = async () => {
 
           let targetMsg: any = null
           let targetMsgIndex = -1
-
+          
           console.log('🔍 开始查找assistant消息，当前消息数:', messages.value.length, 'assistantMsgIndex:', assistantMsgIndex)
-
+          
           if (chunk.messageIndex !== undefined) {
             const msgByIndex = messages.value.find((m: any, idx: number) => {
               if (m.type === 'assistant' && m.messageIndex === chunk.messageIndex) {
@@ -1102,7 +1104,7 @@ const sendMessage = async () => {
               targetMsg = msgByIndex
             }
           }
-
+          
           if (!targetMsg) {
             for (let i = messages.value.length - 1; i >= 0; i--) {
               const m = messages.value[i]
@@ -1117,7 +1119,7 @@ const sendMessage = async () => {
               }
             }
           }
-
+          
           if (!targetMsg) {
             if (assistantMsgIndex >= 0 && assistantMsgIndex < messages.value.length) {
               const msg = messages.value[assistantMsgIndex]
@@ -1137,7 +1139,7 @@ const sendMessage = async () => {
           }
 
           console.log('🔍 当前assistant消息:', targetMsg ? `存在，索引=${targetMsgIndex}，有${targetMsg.responses?.length}个响应` : `不存在，总消息数=${messages.value.length}`)
-
+          
           if (!targetMsg || !targetMsg.responses || targetMsg.type !== 'assistant') {
             console.error('❌ assistant消息不存在或没有responses数组！', {
               targetMsg: targetMsg,
@@ -1147,7 +1149,7 @@ const sendMessage = async () => {
               isLoading: isLoading.value,
               messages: messages.value.map((m: any, i: number) => ({ index: i, type: m.type, messageIndex: m.messageIndex }))
             })
-
+            
             if (assistantMsgIndex >= 0 && assistantMsgIndex < messages.value.length) {
               const msgAtIdx = messages.value[assistantMsgIndex]
               console.log('🔍 尝试使用assistantMsgIndex直接访问:', msgAtIdx)
@@ -1157,12 +1159,12 @@ const sendMessage = async () => {
                 console.log('✅ 使用assistantMsgIndex找到消息')
               }
             }
-
+            
             if (!targetMsg || !targetMsg.responses || targetMsg.type !== 'assistant') {
               return
             }
           }
-
+          
           const msg = targetMsg
 
           if (!chunk.modelName) {
@@ -1180,14 +1182,14 @@ const sendMessage = async () => {
           // Battle模式：将真实模型名转换为匿名标识
           let displayModelName = chunk.modelName
           let realModelName = chunk.modelName
-
+          
           if (chunk.modelName && modelMapping.value && Object.keys(modelMapping.value).length > 0) {
             // 创建反向映射：真实模型名 -> 匿名标识
             const realToAnonymousMap: Record<string, string> = {}
             Object.entries(modelMapping.value).forEach(([anonymousName, realModel]) => {
               realToAnonymousMap[realModel] = anonymousName
             })
-
+            
             // 如果找到了对应的匿名标识，使用匿名标识作为显示名称
             if (realToAnonymousMap[chunk.modelName]) {
               displayModelName = realToAnonymousMap[chunk.modelName]
@@ -1203,11 +1205,11 @@ const sendMessage = async () => {
               console.log('⚠️ Battle模式流式响应，未找到映射，使用索引分配:', emptyIdx, '->', displayModelName)
             }
           }
-
+          
           let idx = msg.responses.findIndex((r: any) => r.modelName === displayModelName || r.modelName === chunk.modelName)
           console.log('🔍 查找模型:', chunk.modelName, 'displayModelName:', displayModelName, '→ 索引:', idx)
           console.log('🔍 响应列表中的模型:', msg.responses.map((r: any) => r.modelName))
-
+          
           if (idx >= 0) {
             const existingResp = msg.responses[idx]
             let updatedResponse = { ...existingResp, ...chunk, modelName: displayModelName }
@@ -1222,7 +1224,7 @@ const sendMessage = async () => {
             if (existingResp.thinkingTime && chunk.thinkingTime === undefined) {
               updatedResponse.thinkingTime = existingResp.thinkingTime
             }
-
+            
             // 如果是Battle模式且该消息轮次已揭晓，保存真实模型名（未揭晓时不保存）
             if (msg.messageIndex !== undefined) {
               const isMsgRevealed = revealedMessageIndexes.value.has(msg.messageIndex)
@@ -1230,10 +1232,10 @@ const sendMessage = async () => {
                 updatedResponse.realModelName = realModelName
               }
             }
-
+            
             const newResponses = [...msg.responses]
             newResponses[idx] = updatedResponse
-
+            
             // Battle模式：确保响应顺序为模型A在前、模型B在后
             if (newResponses.length >= 2) {
               newResponses.sort((a: any, b: any) => {
@@ -1242,7 +1244,7 @@ const sendMessage = async () => {
                 return orderA - orderB
               })
             }
-
+            
             if (targetMsgIndex >= 0 && targetMsgIndex < messages.value.length) {
               const updatedMsg = { ...msg, responses: newResponses }
               messages.value[targetMsgIndex] = updatedMsg
@@ -1257,7 +1259,7 @@ const sendMessage = async () => {
             const emptyIdx = msg.responses.findIndex((r: any) => !r.modelName || r.modelName === '')
             if (emptyIdx >= 0) {
               const newResponse = { ...chunk, modelName: displayModelName }
-
+              
               // 如果是Battle模式且该消息轮次已揭晓，保存真实模型名（未揭晓时不保存）
               if (msg.messageIndex !== undefined) {
                 const isMsgRevealed = revealedMessageIndexes.value.has(msg.messageIndex)
@@ -1265,10 +1267,10 @@ const sendMessage = async () => {
                   newResponse.realModelName = realModelName
                 }
               }
-
+              
               const newResponses = [...msg.responses]
               newResponses[emptyIdx] = newResponse
-
+              
               // Battle模式：确保响应顺序为模型A在前、模型B在后
               if (newResponses.length >= 2) {
                 newResponses.sort((a: any, b: any) => {
@@ -1277,7 +1279,7 @@ const sendMessage = async () => {
                   return orderA - orderB
                 })
               }
-
+              
               if (targetMsgIndex >= 0 && targetMsgIndex < messages.value.length) {
                 const updatedMsg = { ...msg, responses: newResponses }
                 messages.value[targetMsgIndex] = updatedMsg
@@ -1286,14 +1288,14 @@ const sendMessage = async () => {
               } else {
                 console.error('❌ targetMsgIndex无效:', targetMsgIndex, '总消息数:', messages.value.length)
               }
-
+              
               if (chunk.fullContent && chunk.fullContent.length < 100) {
                 scrollToBottom()
               }
             } else {
               console.warn('⚠️ 未找到空响应槽位，添加新响应:', chunk.modelName, '当前响应数:', msg.responses.length)
               const newResponse = { ...chunk, modelName: displayModelName }
-
+              
               // 如果是Battle模式且该消息轮次已揭晓，保存真实模型名（未揭晓时不保存）
               if (msg.messageIndex !== undefined) {
                 const isMsgRevealed = revealedMessageIndexes.value.has(msg.messageIndex)
@@ -1301,9 +1303,9 @@ const sendMessage = async () => {
                   newResponse.realModelName = realModelName
                 }
               }
-
+              
               const newResponses = [...msg.responses, newResponse]
-
+              
               // Battle模式：确保响应顺序为模型A在前、模型B在后
               if (newResponses.length >= 2) {
                 newResponses.sort((a: any, b: any) => {
@@ -1323,6 +1325,25 @@ const sendMessage = async () => {
           }
 
           if (chunk.done) {
+            if (chunk.budgetStatus && chunk.budgetStatus !== 'normal') {
+              const budgetWarningKey = 'budget-warning'
+              if (chunk.budgetStatus === 'exceeded') {
+                notification.error({
+                  key: budgetWarningKey,
+                  message: '预算超出',
+                  description: chunk.budgetMessage || '今日预算已用完，无法继续调用',
+                  duration: 5,
+                })
+              } else if (chunk.budgetStatus === 'warning') {
+                notification.warning({
+                  key: budgetWarningKey,
+                  message: '预算预警',
+                  description: chunk.budgetMessage || '今日预算即将用完，请注意控制',
+                  duration: 4,
+                })
+              }
+            }
+
             if (targetMsgIndex >= 0 && targetMsgIndex < messages.value.length) {
               const currentMsg = messages.value[targetMsgIndex]
               if (currentMsg && currentMsg.responses) {
@@ -1334,7 +1355,6 @@ const sendMessage = async () => {
                   }
                   const conversationId = chunk.conversationId || route.query.conversationId as string
                   if (conversationId) {
-                    // 提前拉取模型映射（用于评分后揭晓）
                     ensureBattleModelMapping(conversationId)
                     loadRatings(conversationId)
                   }
@@ -1589,13 +1609,13 @@ const loadConversation = async () => {
       const conv = convRes.data.data
       // 检查是否为Battle模式（isAnonymous=true 或 conversationType=battle）
       const isBattle = conv.isAnonymous || conv.conversationType === 'battle'
-
+      
       if (isBattle) {
         // 如果有modelMapping，解析它
         if (conv.modelMapping) {
           try {
-            const parsedMapping = typeof conv.modelMapping === 'string'
-              ? JSON.parse(conv.modelMapping)
+            const parsedMapping = typeof conv.modelMapping === 'string' 
+              ? JSON.parse(conv.modelMapping) 
               : conv.modelMapping
             modelMapping.value = parsedMapping
             console.log('🤖 Battle模式，恢复模型映射:', modelMapping.value)
@@ -1608,8 +1628,8 @@ const loadConversation = async () => {
           console.warn('⚠️ Battle模式但没有modelMapping，尝试从models字段恢复')
           if (conv.models) {
             try {
-              const models = typeof conv.models === 'string'
-                ? JSON.parse(conv.models)
+              const models = typeof conv.models === 'string' 
+                ? JSON.parse(conv.models) 
                 : conv.models
               if (Array.isArray(models) && models.length >= 2) {
                 // 创建默认映射
@@ -1624,7 +1644,7 @@ const loadConversation = async () => {
             }
           }
         }
-
+        
         // 检查 localStorage 中是否记录过已揭晓
         const revealedConversations = JSON.parse(localStorage.getItem('battle_revealed') || '[]')
         const isRevealed = revealedConversations.includes(conversationId)
@@ -1659,12 +1679,12 @@ const loadConversation = async () => {
       })
 
       const sorted = Object.keys(grouped).sort((a, b) => Number(a) - Number(b))
-
+      
       if (isLoading.value || isNewConversation.value) {
         console.log('⏭️ 跳过加载历史消息，正在发送新消息')
         return
       }
-
+      
       messages.value = []
 
       sorted.forEach((idx) => {
@@ -1695,12 +1715,12 @@ const loadConversation = async () => {
             })
             console.log('🔐 Battle模式反向映射:', realToAnonymousMap)
           }
-
+          
           const responses = group.assistants.map((a: any) => {
             // Battle模式：始终使用匿名标识作为显示名称，并保存真实模型名
             let displayModelName = a.modelName
             const realModelName = a.modelName
-
+            
             // 如果modelMapping存在，尝试转换为匿名标识
             if (modelMapping.value && Object.keys(modelMapping.value).length > 0) {
               if (realToAnonymousMap[a.modelName]) {
@@ -1757,28 +1777,27 @@ const loadConversation = async () => {
               cost: a.cost,
               generatedImages,
               toolsUsed: a.toolsUsed,
-              reasoning: a.reasoning || '',
-              hasReasoning: !!(a.reasoning && a.reasoning.trim()),
-              thinkingTime: a.thinkingTime || (a.reasoning ? Math.max(1, Math.min(a.reasoning.length / 200, 60)) : undefined)
+              reasoning: a.reasoning,
+              hasReasoning: !!(a.reasoning && a.reasoning.length > 0)
             }
-
+            
             // 如果是Battle模式且该消息轮次已揭晓，保存真实模型名用于显示（未揭晓时不保存）
             const messageIndex = group.assistants[0].messageIndex
             const isMessageRevealed = revealedMessageIndexes.value.has(messageIndex)
             if (isMessageRevealed && realModelName) {
               response.realModelName = realModelName
             }
-
+            
             console.log('📦 构建的response对象:', {
               displayModelName: response.modelName,
               realModelName: response.realModelName,
               messageIndex: messageIndex,
               isMessageRevealed: isMessageRevealed
             })
-
+            
             return response
           })
-
+          
           // Battle模式：确保响应顺序为模型A在前、模型B在后
           if (responses.length >= 2) {
             responses.sort((a: any, b: any) => {
@@ -1794,7 +1813,7 @@ const loadConversation = async () => {
             responses,
             messageIndex: messageIndex
           })
-
+          
           // 如果已揭晓过，标记该消息轮次为已揭晓
           if (revealed.value && modelMapping.value && Object.keys(modelMapping.value).length > 0) {
             revealedMessageIndexes.value.add(messageIndex)

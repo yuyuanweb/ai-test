@@ -116,16 +116,31 @@ export async function userRegister(
 
 /** 获取用户统计数据 GET /user/statistics */
 export async function getUserStatistics(options?: { [key: string]: any }) {
-  return request<{
-    code?: number
-    data?: {
-      totalModels?: number
-      totalTokens?: number
-      totalCost?: number
-    }
-    message?: string
-  }>('/user/statistics', {
+  return request<API.BaseResponseUserStatisticsVO>('/user/statistics', {
     method: 'GET',
+    ...(options || {}),
+  })
+}
+
+/** 获取用户预算状态 GET /user/budget/status */
+export async function getBudgetStatus(options?: { [key: string]: any }) {
+  return request<API.BaseResponseBudgetStatusVO>('/user/budget/status', {
+    method: 'GET',
+    ...(options || {}),
+  })
+}
+
+/** 更新用户预算设置 POST /user/budget/update */
+export async function updateBudget(
+  body: API.BudgetUpdateRequest,
+  options?: { [key: string]: any }
+) {
+  return request<API.BaseResponseBoolean>('/user/budget/update', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    data: body,
     ...(options || {}),
   })
 }

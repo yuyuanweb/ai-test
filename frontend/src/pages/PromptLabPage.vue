@@ -611,7 +611,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { message } from 'ant-design-vue'
+import { message, notification } from 'ant-design-vue'
 import { SwapOutlined, ExperimentOutlined, TrophyOutlined, ExpandOutlined, ThunderboltOutlined, AppstoreOutlined, PlusOutlined, GlobalOutlined, FileImageOutlined, CloseOutlined, LinkOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons-vue'
 import { uploadImage } from '@/api/fileController'
 import { listModels } from '@/api/modelController'
@@ -1223,32 +1223,45 @@ const handleSubmit = async () => {
       },
       {
         onMessage: (chunk: StreamChunkVO) => {
-          console.log('📨 Prompt Lab收到:', chunk.variantIndex, chunk.fullContent?.substring(0, 20), 'reasoning长度:', chunk.reasoning?.length)
+          console.log('Prompt Lab收到:', chunk.variantIndex, chunk.fullContent?.substring(0, 20))
 
-          // 如果是新会话，保存conversationId到URL
           if (chunk.conversationId && !route.query.conversationId) {
-            console.log('💾 保存新会话ID到URL:', chunk.conversationId)
+            console.log('保存新会话ID到URL:', chunk.conversationId)
             router.replace({
               path: '/prompt-lab',
               query: { conversationId: chunk.conversationId }
             })
           }
 
-          // 更新AI响应消息
           const assistantMsg = messages.value[assistantMsgIndex]
           if (assistantMsg && assistantMsg.results && chunk.variantIndex !== undefined) {
             const variantIdx = chunk.variantIndex
             if (assistantMsg.results[variantIdx]) {
-              // 直接更新数据
               assistantMsg.results[variantIdx] = { ...assistantMsg.results[variantIdx], ...chunk }
-              // 如果chunk中包含messageIndex，更新消息的messageIndex
               if (chunk.messageIndex !== undefined) {
                 assistantMsg.messageIndex = chunk.messageIndex
               }
-              // 强制响应式更新
               messages.value = [...messages.value]
-              // 滚动到底部
               scrollToBottom()
+
+              if (chunk.done && chunk.budgetStatus && chunk.budgetStatus !== 'normal') {
+                const budgetWarningKey = 'budget-warning'
+                if (chunk.budgetStatus === 'exceeded') {
+                  notification.error({
+                    key: budgetWarningKey,
+                    message: '预算超出',
+                    description: chunk.budgetMessage || '今日预算已用完，无法继续调用',
+                    duration: 5,
+                  })
+                } else if (chunk.budgetStatus === 'warning') {
+                  notification.warning({
+                    key: budgetWarningKey,
+                    message: '预算预警',
+                    description: chunk.budgetMessage || '今日预算即将用完，请注意控制',
+                    duration: 4,
+                  })
+                }
+              }
             }
           }
         },

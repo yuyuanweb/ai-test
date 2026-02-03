@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+
 const ArenaLayout = () =>
   import(/* webpackChunkName: "layout-arena" */ '@/layouts/ArenaLayout.vue')
 
@@ -164,6 +165,20 @@ const router = createRouter({
         import(
           /* webpackChunkName: "page-admin-user" */ '@/pages/admin/UserManagePage.vue'
         ),
+    },
+    {
+      path: '/statistics',
+      component: ArenaLayout,
+      children: [
+        {
+          path: '',
+          name: '数据分析',
+          component: () =>
+            import(
+              /* webpackChunkName: "page-statistics" */ '@/pages/StatisticsPage.vue'
+            ),
+        },
+      ],
     },
   ],
 })

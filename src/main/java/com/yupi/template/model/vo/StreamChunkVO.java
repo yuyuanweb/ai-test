@@ -148,6 +148,36 @@ public class StreamChunkVO implements Serializable {
     @Schema(description = "工具调用信息（JSON字符串）")
     private String toolsUsed;
 
+    /**
+     * 预算状态：normal-正常，warning-预警，exceeded-超出
+     */
+    @Schema(description = "预算状态")
+    private String budgetStatus;
+
+    /**
+     * 预算提示消息
+     */
+    @Schema(description = "预算提示消息")
+    private String budgetMessage;
+
+    /**
+     * 今日已消耗(USD)
+     */
+    @Schema(description = "今日已消耗")
+    private Double todayCost;
+
+    /**
+     * 日预算限额(USD)
+     */
+    @Schema(description = "日预算限额")
+    private Double dailyBudget;
+
+    /**
+     * 日预算使用百分比
+     */
+    @Schema(description = "日预算使用百分比")
+    private Double dailyUsagePercent;
+
     private static final long serialVersionUID = 1L;
 }
 

@@ -80,6 +80,9 @@ public class ImageServiceImpl implements ImageService {
     private com.yupi.template.mapper.ModelMapper modelMapper;
 
     @Resource
+    private com.yupi.template.service.BudgetService budgetService;
+
+    @Resource
     private WebClient.Builder webClientBuilder;
 
     private static final String COS_IMAGE_PREFIX = "/aitest/%s/generated/";
@@ -285,6 +288,7 @@ public class ImageServiceImpl implements ImageService {
                 BigDecimal costValue = cost != null ? BigDecimal.valueOf(cost) : BigDecimal.ZERO;
                 modelService.updateModelUsage(request.getModel(), totalTokens, costValue);
                 userModelUsageService.updateUserModelUsage(userId, request.getModel(), totalTokens, costValue);
+                budgetService.addCost(userId, costValue);
             }
 
             // 保存到会话（如果提供了 conversationId 或 models）

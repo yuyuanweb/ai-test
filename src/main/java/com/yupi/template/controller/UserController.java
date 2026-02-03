@@ -11,9 +11,11 @@ import com.yupi.template.exception.BusinessException;
 import com.yupi.template.exception.ErrorCode;
 import com.yupi.template.exception.ThrowUtils;
 import com.yupi.template.model.dto.user.*;
+import com.yupi.template.model.vo.BudgetStatusVO;
 import com.yupi.template.model.vo.LoginUserVO;
 import com.yupi.template.model.vo.UserStatisticsVO;
 import com.yupi.template.model.vo.UserVO;
+import com.yupi.template.service.BudgetService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,6 +39,9 @@ public class UserController {
 
     @Resource
     private UserService userService;
+
+    @Resource
+    private BudgetService budgetService;
 
     /**
      * 用户注册
@@ -175,6 +180,9 @@ public class UserController {
         user.setUserName(userUpdateRequest.getUserName());
         user.setUserAvatar(userUpdateRequest.getUserAvatar());
         user.setUserProfile(userUpdateRequest.getUserProfile());
+        user.setDailyBudget(userUpdateRequest.getDailyBudget());
+        user.setMonthlyBudget(userUpdateRequest.getMonthlyBudget());
+        user.setBudgetAlertThreshold(userUpdateRequest.getBudgetAlertThreshold());
         boolean result = userService.updateById(user);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
         return ResultUtils.success(true);
@@ -211,6 +219,49 @@ public class UserController {
         User loginUser = userService.getLoginUser(httpRequest);
         UserStatisticsVO statistics = userService.getUserStatistics(loginUser.getId());
         return ResultUtils.success(statistics);
+    }
+
+    /**
+     * 获取用户预算状态
+     *
+     * @param httpRequest HTTP请求
+     * @return 预算状态
+     */
+    @GetMapping("/budget/status")
+    public BaseResponse<BudgetStatusVO> getBudgetStatus(HttpServletRequest httpRequest) {
+        User loginUser = userService.getLoginUser(httpRequest);
+        BudgetStatusVO budgetStatus = budgetService.checkBudget(loginUser.getId());
+        return ResultUtils.success(budgetStatus);
+    }
+
+    /**
+     * 更新用户预算设置
+     *
+     * @param request     预算更新请求
+     * @param httpRequest HTTP请求
+     * @return 更新结果
+     */
+    @PostMapping("/budget/update")
+    public BaseResponse<Boolean> updateBudget(@RequestBody BudgetUpdateRequest request,
+                                              HttpServletRequest httpRequest) {
+        ThrowUtils.throwIf(request == null, ErrorCode.PARAMS_ERROR);
+        User loginUser = userService.getLoginUser(httpRequest);
+
+        User updateUser = new User();
+        updateUser.setId(loginUser.getId());
+        updateUser.setDailyBudget(request.getDailyBudget());
+        updateUser.setMonthlyBudget(request.getMonthlyBudget());
+
+        Integer alertThreshold = request.getAlertThreshold();
+        if (alertThreshold != null) {
+            ThrowUtils.throwIf(alertThreshold < 1 || alertThreshold > 99,
+                    ErrorCode.PARAMS_ERROR, "预警阈值必须在1-99之间");
+            updateUser.setBudgetAlertThreshold(alertThreshold);
+        }
+
+        boolean result = userService.updateById(updateUser);
+        ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR, "预算设置更新失败");
+        return ResultUtils.success(true);
     }
 
     /**

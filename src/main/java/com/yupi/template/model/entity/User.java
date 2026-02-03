@@ -73,6 +73,24 @@ public class User implements Serializable {
     private String userRole;
 
     /**
+     * 日预算限额(USD)
+     */
+    @Column("dailyBudget")
+    private java.math.BigDecimal dailyBudget;
+
+    /**
+     * 月预算限额(USD)
+     */
+    @Column("monthlyBudget")
+    private java.math.BigDecimal monthlyBudget;
+
+    /**
+     * 预算预警阈值(百分比，默认80%)
+     */
+    @Column("budgetAlertThreshold")
+    private Integer budgetAlertThreshold;
+
+    /**
      * 编辑时间
      */
     @Column("editTime")
