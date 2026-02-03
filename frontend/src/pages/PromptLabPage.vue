@@ -300,9 +300,32 @@
                   <template #icon><ThunderboltOutlined /></template>
                   优化
                 </a-button>
-                <button class="expand-btn" @click="expandVariant(idx)" title="放大编辑">
-                  <ExpandOutlined />
-                </button>
+                <a-button
+                  size="small"
+                  type="link"
+                  @click="expandVariant(idx)"
+                  style="padding: 0 4px; height: 24px; font-size: 12px;"
+                >
+                  <template #icon><EditOutlined /></template>
+                  编辑
+                </a-button>
+                <a-popconfirm
+                  v-if="variants.length > 2"
+                  title="确定要删除这个变体吗？"
+                  ok-text="删除"
+                  cancel-text="取消"
+                  @confirm="removeVariant(idx)"
+                >
+                  <a-button
+                    size="small"
+                    type="link"
+                    danger
+                    style="padding: 0 4px; height: 24px; font-size: 12px;"
+                  >
+                    <template #icon><DeleteOutlined /></template>
+                    删除
+                  </a-button>
+                </a-popconfirm>
               </div>
             </div>
             <textarea
@@ -452,6 +475,21 @@
               </div>
               <div class="template-footer">
                 <span class="template-usage">使用 {{ template.usageCount || 0 }} 次</span>
+                <div v-if="!template.isPreset" class="template-item-actions" @click.stop>
+                  <a-button type="link" size="small" @click="handleEditTemplate(template)">
+                    编辑
+                  </a-button>
+                  <a-popconfirm
+                    title="确定要删除这个模板吗？"
+                    ok-text="删除"
+                    cancel-text="取消"
+                    @confirm="handleDeleteTemplate(template.id)"
+                  >
+                    <a-button type="link" size="small" danger>
+                      删除
+                    </a-button>
+                  </a-popconfirm>
+                </div>
               </div>
             </div>
           </div>
@@ -467,12 +505,12 @@
         </div>
       </a-drawer>
 
-      <!-- 创建模板对话框 -->
+      <!-- 创建/编辑模板对话框 -->
       <a-modal
         v-model:open="createTemplateModalVisible"
-        title="创建提示词模板"
+        :title="editingTemplateId ? '编辑提示词模板' : '创建提示词模板'"
         width="700px"
-        @ok="handleCreateTemplate"
+        @ok="handleSaveTemplate"
         @cancel="resetCreateTemplateForm"
       >
         <a-form :model="createTemplateForm" layout="vertical">
@@ -574,7 +612,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { SwapOutlined, ExperimentOutlined, TrophyOutlined, ExpandOutlined, ThunderboltOutlined, AppstoreOutlined, PlusOutlined, GlobalOutlined, FileImageOutlined, CloseOutlined, LinkOutlined } from '@ant-design/icons-vue'
+import { SwapOutlined, ExperimentOutlined, TrophyOutlined, ExpandOutlined, ThunderboltOutlined, AppstoreOutlined, PlusOutlined, GlobalOutlined, FileImageOutlined, CloseOutlined, LinkOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons-vue'
 import { uploadImage } from '@/api/fileController'
 import { listModels } from '@/api/modelController'
 import { getConversation, getConversationMessages, type StreamChunkVO, type ToolsUsedInfo } from '@/api/conversationController'
@@ -583,7 +621,7 @@ import { API_BASE_URL } from '@/config/env'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import { addRating, getRating, getRatingsByConversationId, type RatingVO } from '@/api/ratingController'
 import { optimizePrompt, type PromptOptimizationVO } from '@/api/promptOptimizationController'
-import { listTemplates, createTemplate, incrementUsage, type PromptTemplateVO } from '@/api/promptTemplateController'
+import { listTemplates, createTemplate, updateTemplate, deleteTemplate, incrementUsage, type PromptTemplateVO } from '@/api/promptTemplateController'
 import { generateImage, generateImageStream, type GeneratedImageVO } from '@/api/imageController'
 
 const router = useRouter()
@@ -617,6 +655,7 @@ const templateLibraryVisible = ref(false)  // 模板库抽屉显示状态
 const templates = ref<PromptTemplateVO[]>([])  // 模板列表
 const selectedStrategy = ref<string>('')  // 选中的策略类型
 const createTemplateModalVisible = ref(false)  // 创建模板对话框显示状态
+const editingTemplateId = ref<string | null>(null)  // 正在编辑的模板ID
 const createTemplateForm = ref({
   name: '',
   strategy: '',
@@ -1532,6 +1571,7 @@ const showCreateTemplateModal = () => {
 
 // 重置创建模板表单
 const resetCreateTemplateForm = () => {
+  editingTemplateId.value = null
   createTemplateForm.value = {
     name: '',
     strategy: '',
@@ -1541,29 +1581,81 @@ const resetCreateTemplateForm = () => {
   }
 }
 
-// 创建模板
-const handleCreateTemplate = async () => {
+// 编辑模板
+const handleEditTemplate = (template: PromptTemplateVO) => {
+  editingTemplateId.value = template.id || null
+  createTemplateForm.value = {
+    name: template.name || '',
+    strategy: template.strategy || '',
+    description: template.description || '',
+    content: template.content || '',
+    category: template.category || ''
+  }
+  createTemplateModalVisible.value = true
+}
+
+// 删除模板
+const handleDeleteTemplate = async (templateId?: string) => {
+  if (!templateId) return
+  try {
+    const res: any = await deleteTemplate(templateId)
+    if (res.data && res.data.code === 0) {
+      message.success('删除成功')
+      loadTemplates()
+    } else {
+      message.error(res.data?.message || '删除失败')
+    }
+  } catch (error) {
+    console.error('删除模板失败:', error)
+    message.error('删除失败')
+  }
+}
+
+// 保存模板（创建或更新）
+const handleSaveTemplate = async () => {
   if (!createTemplateForm.value.name || !createTemplateForm.value.strategy || !createTemplateForm.value.content) {
     message.warning('请填写必填项')
     return
   }
 
   try {
-    const res: any = await createTemplate({
-      name: createTemplateForm.value.name,
-      strategy: createTemplateForm.value.strategy,
-      description: createTemplateForm.value.description,
-      content: createTemplateForm.value.content,
-      category: createTemplateForm.value.category
-    })
+    if (editingTemplateId.value) {
+      // 更新模式
+      const res: any = await updateTemplate({
+        id: editingTemplateId.value,
+        name: createTemplateForm.value.name,
+        strategy: createTemplateForm.value.strategy,
+        description: createTemplateForm.value.description,
+        content: createTemplateForm.value.content,
+        category: createTemplateForm.value.category
+      })
 
-    if (res.data && res.data.code === 0) {
-      message.success('模板创建成功')
-      createTemplateModalVisible.value = false
-      resetCreateTemplateForm()
-      loadTemplates()
+      if (res.data && res.data.code === 0) {
+        message.success('模板更新成功')
+        createTemplateModalVisible.value = false
+        resetCreateTemplateForm()
+        loadTemplates()
+      } else {
+        message.error(res.data?.message || '更新模板失败')
+      }
     } else {
-      message.error(res.data?.message || '创建模板失败')
+      // 创建模式
+      const res: any = await createTemplate({
+        name: createTemplateForm.value.name,
+        strategy: createTemplateForm.value.strategy,
+        description: createTemplateForm.value.description,
+        content: createTemplateForm.value.content,
+        category: createTemplateForm.value.category
+      })
+
+      if (res.data && res.data.code === 0) {
+        message.success('模板创建成功')
+        createTemplateModalVisible.value = false
+        resetCreateTemplateForm()
+        loadTemplates()
+      } else {
+        message.error(res.data?.message || '创建模板失败')
+      }
     }
   } catch (error) {
     console.error('创建模板失败:', error)
@@ -2386,6 +2478,25 @@ onUnmounted(() => {
   color: #374151;
 }
 
+.delete-variant-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.delete-variant-btn:hover {
+  background: #fef2f2;
+  color: #ef4444;
+}
+
 .variant-input-inline {
   width: 100%;
   border: 1px solid #e5e7eb;
@@ -2870,9 +2981,15 @@ onUnmounted(() => {
 
 .template-footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   font-size: 12px;
   color: #9ca3af;
+}
+
+.template-item-actions {
+  display: flex;
+  gap: 4px;
 }
 
 .template-actions {

@@ -68,6 +68,20 @@ const router = createRouter({
       ],
     },
     {
+      path: '/prompt-template',
+      component: ArenaLayout,
+      children: [
+        {
+          path: 'manage',
+          name: '提示词模板',
+          component: () =>
+            import(
+              /* webpackChunkName: "page-prompt-template" */ '@/pages/PromptTemplateManagePage.vue'
+            ),
+        },
+      ],
+    },
+    {
       path: '/batch-test',
       component: ArenaLayout,
       children: [

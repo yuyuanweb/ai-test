@@ -31,7 +31,7 @@ export async function createConversation(
 
 /** 删除对话 POST /conversation/delete */
 export async function deleteConversation(
-  body: API.DeleteRequest,
+  body: API.DeleteConversationRequest,
   options?: { [key: string]: any }
 ) {
   return request<API.BaseResponseBoolean>('/conversation/delete', {

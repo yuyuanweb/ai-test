@@ -457,6 +457,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { useLoginUserStore } from '@/stores/loginUser'
+import { useLoginModalStore } from '@/stores/loginModal'
 import {
   SearchOutlined,
   FileImageOutlined,
@@ -492,6 +493,7 @@ interface Msg {
 const router = useRouter()
 const route = useRoute()
 const loginUserStore = useLoginUserStore()
+const loginModalStore = useLoginModalStore()
 const loginUser = computed(() => loginUserStore.loginUser)
 
 const currentMode = ref('side-by-side')
@@ -1142,7 +1144,7 @@ const sendMessage = async () => {
   // 检查是否登录
   if (!loginUser.value.id) {
     message.warning('请先登录')
-    router.push('/user/login')
+    loginModalStore.openModal('login')
     return
   }
 

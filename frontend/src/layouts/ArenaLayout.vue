@@ -26,6 +26,10 @@
           <UnorderedListOutlined />
           <span>测试任务</span>
         </button>
+        <button class="nav-btn" @click="router.push('/prompt-template/manage')">
+          <FileTextOutlined />
+          <span>提示词模板</span>
+        </button>
       </nav>
 
       <!-- 历史对话 -->
@@ -76,6 +80,20 @@
             
             <!-- 标题文字在右侧（左对齐） -->
             <span class="history-title">{{ conv.title || '无标题对话' }}</span>
+            <a-popconfirm
+              title="确定要删除这个会话吗？"
+              ok-text="删除"
+              cancel-text="取消"
+              @confirm="handleDeleteConversation(conv.id, $event)"
+            >
+              <button
+                class="delete-btn"
+                title="删除会话"
+                @click.stop
+              >
+                <DeleteOutlined />
+              </button>
+            </a-popconfirm>
           </div>
         </div>
 
@@ -125,6 +143,20 @@
             
             <!-- 标题文字在右侧（左对齐） -->
             <span class="history-title">{{ conv.title || '无标题对话' }}</span>
+            <a-popconfirm
+              title="确定要删除这个会话吗？"
+              ok-text="删除"
+              cancel-text="取消"
+              @confirm="handleDeleteConversation(conv.id, $event)"
+            >
+              <button
+                class="delete-btn"
+                title="删除会话"
+                @click.stop
+              >
+                <DeleteOutlined />
+              </button>
+            </a-popconfirm>
           </div>
         </div>
 
@@ -174,6 +206,20 @@
             
             <!-- 标题文字在右侧（左对齐） -->
             <span class="history-title">{{ conv.title || '无标题对话' }}</span>
+            <a-popconfirm
+              title="确定要删除这个会话吗？"
+              ok-text="删除"
+              cancel-text="取消"
+              @confirm="handleDeleteConversation(conv.id, $event)"
+            >
+              <button
+                class="delete-btn"
+                title="删除会话"
+                @click.stop
+              >
+                <DeleteOutlined />
+              </button>
+            </a-popconfirm>
           </div>
         </div>
 
@@ -223,6 +269,10 @@
               </div>
               <a-divider style="margin: 8px 0" />
               <a-menu>
+                <a-menu-item @click="openEditModal">
+                  <EditOutlined />
+                  编辑信息
+                </a-menu-item>
                 <a-menu-item @click="handleLogout">
                   <LogoutOutlined />
                   退出登录
@@ -233,7 +283,7 @@
         </a-dropdown>
 
         <!-- 未登录：显示Login按钮 -->
-        <button v-else class="login-btn-bottom" @click="router.push('/user/login')">
+        <button v-else class="login-btn-bottom" @click="openLoginModal">
           Login
         </button>
       </div>
@@ -243,21 +293,41 @@
     <div class="main-wrapper">
       <RouterView />
     </div>
+
+    <!-- 登录弹窗 -->
+    <LoginModal />
+
+    <!-- 用户编辑弹窗 -->
+    <UserEditModal v-model:open="editModalVisible" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { EditOutlined, LogoutOutlined, SwapOutlined, ExperimentOutlined, ThunderboltOutlined, UnorderedListOutlined, AppstoreOutlined, TrophyOutlined } from '@ant-design/icons-vue'
+import { EditOutlined, LogoutOutlined, SwapOutlined, ExperimentOutlined, ThunderboltOutlined, UnorderedListOutlined, AppstoreOutlined, TrophyOutlined, DeleteOutlined, FileTextOutlined } from '@ant-design/icons-vue'
 import { useLoginUserStore } from '@/stores/loginUser'
+import { useLoginModalStore } from '@/stores/loginModal'
 import { userLogout, getUserStatistics } from '@/api/userController'
-import { listConversations } from '@/api/conversationController'
+import { listConversations, deleteConversation } from '@/api/conversationController'
+import LoginModal from '@/components/LoginModal.vue'
+import UserEditModal from '@/components/UserEditModal.vue'
 
 const router = useRouter()
 const loginUserStore = useLoginUserStore()
+const loginModalStore = useLoginModalStore()
 const loginUser = computed(() => loginUserStore.loginUser)
+
+const openLoginModal = () => {
+  loginModalStore.openModal('login')
+}
+
+// 用户编辑弹窗
+const editModalVisible = ref(false)
+const openEditModal = () => {
+  editModalVisible.value = true
+}
 
 const todayConversations = ref<any[]>([])
 const yesterdayConversations = ref<any[]>([])
@@ -341,10 +411,15 @@ const handleScroll = (e: Event) => {
 const handleLogout = async () => {
   try {
     const res: any = await userLogout()
-    if (res.code === 0) {
+    if (res.data.code === 0) {
       loginUserStore.setLoginUser({ userName: '未登录' })
       message.success('退出成功')
-      router.push('/user/login')
+      // 清空对话列表
+      todayConversations.value = []
+      yesterdayConversations.value = []
+      olderConversations.value = []
+      // 跳转到首页并刷新
+      router.push('/side-by-side?t=' + Date.now())
     }
   } catch (error) {
     message.error('退出失败')
@@ -396,6 +471,34 @@ const openConversation = (id: string, conversationType?: string, codePreviewEnab
   }
   
   router.push(`/${page}?conversationId=${id}`)
+}
+
+const handleDeleteConversation = async (conversationId: string, event?: Event) => {
+  if (event) {
+    event.stopPropagation()
+  }
+  
+  try {
+    const res: any = await deleteConversation({ id: conversationId })
+    if (res.data && res.data.code === 0) {
+      message.success('会话已删除')
+      
+      todayConversations.value = todayConversations.value.filter((c: any) => c.id !== conversationId)
+      yesterdayConversations.value = yesterdayConversations.value.filter((c: any) => c.id !== conversationId)
+      olderConversations.value = olderConversations.value.filter((c: any) => c.id !== conversationId)
+      
+      const currentPath = router.currentRoute.value.fullPath
+      if (currentPath.includes(`conversationId=${conversationId}`)) {
+        const basePath = router.currentRoute.value.path
+        router.replace(basePath)
+      }
+    } else {
+      message.error(res.data?.message || '删除失败')
+    }
+  } catch (error) {
+    console.error('删除会话失败:', error)
+    message.error('删除会话失败')
+  }
 }
 
 // 获取图标映射函数
@@ -483,6 +586,25 @@ onMounted(() => {
     loadConversations()
   })
 })
+
+// 监听登录状态变化，登录后刷新对话列表
+watch(
+  () => loginUser.value.id,
+  (newId, oldId) => {
+    if (newId && !oldId) {
+      // 用户刚登录，刷新对话列表
+      currentPage.value = 1
+      hasMore.value = true
+      loadConversations()
+    } else if (!newId && oldId) {
+      // 用户退出登录，清空对话列表并跳转到首页
+      todayConversations.value = []
+      yesterdayConversations.value = []
+      olderConversations.value = []
+      router.push('/side-by-side')
+    }
+  }
+)
 </script>
 
 <style scoped>
@@ -597,7 +719,7 @@ onMounted(() => {
 
 .history-item {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
@@ -607,10 +729,37 @@ onMounted(() => {
   cursor: pointer;
   margin-bottom: 2px;
   transition: background 0.15s;
+  position: relative;
 }
 
 .history-item:hover {
   background: #e5e7eb;
+}
+
+.history-item:hover .delete-btn {
+  opacity: 1;
+}
+
+.delete-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.delete-btn:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
 }
 
 .conversation-type-icon {
