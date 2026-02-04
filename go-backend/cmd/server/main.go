@@ -17,6 +17,9 @@ import (
 	_ "ai-test-go/docs"
 	"ai-test-go/internal/config"
 	"ai-test-go/internal/handler"
+	"ai-test-go/internal/middleware"
+	"ai-test-go/internal/repository"
+	"ai-test-go/internal/service"
 
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
@@ -40,8 +43,37 @@ func main() {
 
 	r := gin.Default()
 
-	healthHandler := handler.NewHealthHandler()
-	r.GET("/api/health", healthHandler.HealthCheck)
+	userRepo := repository.NewUserRepository(config.DB)
+	userService := service.NewUserService(userRepo)
+	userHandler := handler.NewUserHandler(userService)
+
+	testService := service.NewTestService()
+	testHandler := handler.NewTestHandler(testService)
+
+	api := r.Group("/api")
+	{
+		api.GET("/health", handler.NewHealthHandler().HealthCheck)
+
+		user := api.Group("/user")
+		{
+			user.POST("/register", userHandler.UserRegister)
+			user.POST("/login", userHandler.UserLogin)
+			user.GET("/get/login", middleware.AuthMiddleware(), userHandler.GetLoginUser)
+			user.POST("/logout", middleware.AuthMiddleware(), userHandler.UserLogout)
+			user.POST("/add", middleware.AuthMiddleware(), middleware.AdminAuthMiddleware(), userHandler.AddUser)
+			user.GET("/get", middleware.AuthMiddleware(), middleware.AdminAuthMiddleware(), userHandler.GetUserByID)
+			user.GET("/get/vo", userHandler.GetUserVOByID)
+			user.POST("/delete", middleware.AuthMiddleware(), middleware.AdminAuthMiddleware(), userHandler.DeleteUser)
+			user.POST("/update", middleware.AuthMiddleware(), middleware.AdminAuthMiddleware(), userHandler.UpdateUser)
+			user.POST("/list/page/vo", middleware.AuthMiddleware(), middleware.AdminAuthMiddleware(), userHandler.ListUserByPage)
+		}
+
+		test := api.Group("/test")
+		{
+			test.POST("/ai/simple", testHandler.TestAISimple)
+			test.POST("/ai/stream", testHandler.TestAIStream)
+		}
+	}
 
 	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
