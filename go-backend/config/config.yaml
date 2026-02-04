@@ -17,7 +17,7 @@ database:
 redis:
   addr: localhost:6379
   password: ""
-  db: 0
+  db: 1
   poolSize: 10
 
 session:
@@ -26,5 +26,5 @@ session:
   cookieName: sessionId
 
 openrouter:
-  apiKey: ""
-  baseURL: https://openrouter.ai/api/v1
+  apiKey: "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"
+  baseURL: "https://openrouter.ai/api/v1"
