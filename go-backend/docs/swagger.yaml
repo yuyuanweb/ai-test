@@ -1,0 +1,27 @@
+basePath: /api
+host: localhost:8080
+info:
+  contact:
+    name: 编程导航学习圈
+    url: https://codefather.cn
+  description: AI大模型评测平台 Go版后端接口文档
+  title: AI大模型评测平台 API
+  version: "1.0"
+paths:
+  /health:
+    get:
+      consumes:
+      - application/json
+      description: 检查服务是否正常运行
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成功
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 健康检查
+      tags:
+      - 系统管理
+swagger: "2.0"

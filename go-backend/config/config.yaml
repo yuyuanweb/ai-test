@@ -1,0 +1,30 @@
+server:
+  port: 8080
+  mode: debug  # debug/release
+
+database:
+  host: localhost
+  port: 3306
+  user: root
+  password: 11111111
+  dbname: ai_eval
+  charset: utf8mb4
+  parseTime: true
+  loc: Local
+  maxIdleConns: 10
+  maxOpenConns: 100
+
+redis:
+  addr: localhost:6379
+  password: ""
+  db: 0
+  poolSize: 10
+
+session:
+  secret: yupi
+  maxAge: 1800  # 30分钟
+  cookieName: sessionId
+
+openrouter:
+  apiKey: ""
+  baseURL: https://openrouter.ai/api/v1
