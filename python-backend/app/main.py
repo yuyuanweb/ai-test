@@ -1,74 +1,89 @@
 """
-FastAPI主应用
+应用主入口
 @author <a href="https://codefather.cn">编程导航学习圈</a>
 """
-import logging
-from fastapi import FastAPI
+import uvicorn
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager
+
 from app.core.config import get_settings
-from app.core.logging_config import LoggingConfig
-from app.api import health
+from app.core.errors import BusinessException
+from app.core.logging_config import logger
+from app.api import user, health, test
+from app.middleware.session_middleware import RedisSessionMiddleware
+from app.db.redis_session import RedisSessionBackend
+from app.db.redis import get_redis_client
 
 settings = get_settings()
 
-LoggingConfig.setup_logging(log_level="DEBUG" if settings.APP_DEBUG else "INFO")
-
-logger = logging.getLogger(__name__)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    应用生命周期管理
+    """
+    logger.info("应用启动")
+    
+    redis_client = await get_redis_client()
+    session_backend = RedisSessionBackend(redis_client)
+    
+    app.state.redis_client = redis_client
+    app.state.session_backend = session_backend
+    
+    yield
+    
+    if redis_client:
+        await redis_client.close()
+    
+    logger.info("应用关闭")
 
 app = FastAPI(
     title=settings.APP_NAME,
-    description="AI大模型评测平台 - Python后端",
-    version="0.0.1",
+    version=settings.APP_VERSION,
     docs_url="/api/docs",
     redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json"
+    openapi_url="/api/openapi.json",
+    lifespan=lifespan
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS_LIST,
+    allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+app.add_middleware(
+    RedisSessionMiddleware,
+    session_backend=None,
+    cookie_name="session_id",
+    max_age=settings.SESSION_EXPIRE_SECONDS
+)
+
+
+@app.exception_handler(BusinessException)
+async def business_exception_handler(request: Request, exc: BusinessException):
+    """
+    业务异常处理器
+    """
+    return JSONResponse(
+        status_code=200,
+        content=exc.to_dict()
+    )
+
+
 app.include_router(health.router, prefix="/api")
-
-
-@app.get("/")
-async def root():
-    """根路径"""
-    logger.info("访问根路径")
-    return {
-        "message": "Welcome to AI Evaluation Platform",
-        "docs": "/api/docs",
-        "version": "0.0.1"
-    }
-
-
-@app.on_event("startup")
-async def startup_event():
-    """应用启动事件"""
-    logger.info("=" * 50)
-    logger.info("AI 大模型评测平台启动")
-    logger.info("应用名称: %s", settings.APP_NAME)
-    logger.info("环境: %s", settings.APP_ENV)
-    logger.info("端口: %d", settings.APP_PORT)
-    logger.info("调试模式: %s", settings.APP_DEBUG)
-    logger.info("=" * 50)
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """应用关闭事件"""
-    logger.info("AI 大模型评测平台关闭")
+app.include_router(user.router, prefix="/api")
+app.include_router(test.router, prefix="/api")
 
 
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(
         "app.main:app",
-        host="0.0.0.0",
+        host=settings.APP_HOST,
         port=settings.APP_PORT,
-        reload=settings.APP_DEBUG
+        reload=settings.APP_DEBUG,
+        log_level="info"
     )
