@@ -6,6 +6,7 @@ type StreamChunkVO struct {
 	ConversationID string  `json:"conversationId,omitempty"`
 	ModelName      string  `json:"modelName,omitempty"`
 	VariantIndex   *int    `json:"variantIndex,omitempty"`
+	MessageIndex   *int    `json:"messageIndex,omitempty"`
 	Content        string  `json:"content,omitempty"`
 	FullContent    string  `json:"fullContent,omitempty"`
 	InputTokens    int     `json:"inputTokens,omitempty"`

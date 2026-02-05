@@ -27,18 +27,12 @@ type SideBySideRequest struct {
 }
 
 type PromptLabRequest struct {
-	Model            string          `json:"model" binding:"required"`
-	BasePrompt       string          `json:"basePrompt" binding:"required"`
-	PromptVariants   []PromptVariant `json:"promptVariants" binding:"required"`
-	ConversationID   string          `json:"conversationId"`
-	ImageUrls        []string        `json:"imageUrls"`
-	WebSearchEnabled bool            `json:"webSearchEnabled"`
-}
-
-type PromptVariant struct {
-	Index   int    `json:"index"`
-	Title   string `json:"title"`
-	Content string `json:"content"`
+	Model            string     `json:"model" binding:"required"`
+	PromptVariants   []string   `json:"promptVariants" binding:"required,min=2,max=5"`
+	VariantImageUrls [][]string `json:"variantImageUrls"`
+	ConversationID   string     `json:"conversationId"`
+	Stream           *bool      `json:"stream"`
+	WebSearchEnabled bool       `json:"webSearchEnabled"`
 }
 
 type BattleRequest struct {
@@ -58,12 +52,12 @@ type CodeModeRequest struct {
 }
 
 type CodeModePromptLabRequest struct {
-	Model            string          `json:"model" binding:"required"`
-	BasePrompt       string          `json:"basePrompt" binding:"required"`
-	PromptVariants   []PromptVariant `json:"promptVariants" binding:"required"`
-	ConversationID   string          `json:"conversationId"`
-	ImageUrls        []string        `json:"imageUrls"`
-	WebSearchEnabled bool            `json:"webSearchEnabled"`
+	Model            string     `json:"model" binding:"required"`
+	PromptVariants   []string   `json:"promptVariants" binding:"required,min=2,max=5"`
+	VariantImageUrls [][]string `json:"variantImageUrls"`
+	ConversationID   string     `json:"conversationId"`
+	Stream           *bool      `json:"stream"`
+	WebSearchEnabled bool       `json:"webSearchEnabled"`
 }
 
 type DeleteConversationRequest struct {

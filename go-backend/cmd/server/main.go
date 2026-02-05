@@ -110,6 +110,7 @@ func main() {
 			conversation.POST("/create", middleware.AuthMiddleware(), conversationHandler.CreateConversation)
 			conversation.POST("/chat/stream", middleware.AuthMiddleware(), conversationHandler.ChatStream)
 			conversation.POST("/side-by-side/stream", middleware.AuthMiddleware(), conversationHandler.SideBySideStream)
+			conversation.POST("/prompt-lab/stream", middleware.AuthMiddleware(), conversationHandler.PromptLabStream)
 			conversation.GET("/get", middleware.AuthMiddleware(), conversationHandler.GetConversation)
 			conversation.GET("/list", middleware.AuthMiddleware(), conversationHandler.ListConversations)
 			conversation.GET("/messages", middleware.AuthMiddleware(), conversationHandler.GetConversationMessages)
