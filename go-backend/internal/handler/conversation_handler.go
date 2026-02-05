@@ -161,6 +161,55 @@ func (h *ConversationHandler) SideBySideStream(c *gin.Context) {
 	}
 }
 
+// PromptLabStream Prompt Lab单模型多提示词对比（流式响应）
+// @Summary      Prompt Lab单模型多提示词对比
+// @Description  单模型多提示词对比（流式）
+// @Tags         对话接口
+// @Accept       json
+// @Produce      text/event-stream
+// @Param        request  body      dto.PromptLabRequest  true  "对比请求"
+// @Success      200      {object}  vo.StreamChunkVO  "成功"
+// @Router       /conversation/prompt-lab/stream [post]
+func (h *ConversationHandler) PromptLabStream(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusOK, common.Error(common.NOT_LOGIN_ERROR, "未登录"))
+		return
+	}
+
+	var req dto.PromptLabRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("参数绑定失败: %v", err)
+		c.JSON(http.StatusOK, common.Error(common.PARAMS_ERROR, "参数错误"))
+		return
+	}
+
+	log.Printf("Prompt Lab stream request: user=%d, model=%s, variants=%d", userID, req.Model, len(req.PromptVariants))
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	err := h.conversationService.PromptLabStream(&req, userID.(int64), func(chunk vo.StreamChunkVO) error {
+		data, err := json.Marshal(chunk)
+		if err != nil {
+			return err
+		}
+
+		_, err = fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+		if err != nil {
+			return err
+		}
+		c.Writer.Flush()
+		return nil
+	})
+
+	if err != nil {
+		log.Printf("Prompt Lab流式调用失败: %v", err)
+	}
+}
+
 // GetConversation 获取对话详情
 // @Summary      获取对话详情
 // @Description  获取对话详情
