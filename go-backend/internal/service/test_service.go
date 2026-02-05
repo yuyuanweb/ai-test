@@ -47,17 +47,26 @@ func (s *TestService) TestAIStream(prompt, model string, onChunk func(chunk vo.S
 		model = "qwen/qwen-plus"
 	}
 
+	fullContent := ""
+	fullReasoning := ""
+
 	ctx := context.Background()
-	return s.langchainAdapter.CallStream(ctx, prompt, model, func(content string) error {
-		if content == "" {
+	return s.langchainAdapter.CallStream(ctx, prompt, model, func(data llm.StreamData) error {
+		if data.Content == "" && data.Reasoning == "" {
 			return nil
 		}
 
+		fullContent += data.Content
+		fullReasoning += data.Reasoning
+
 		chunkVO := vo.StreamChunkVO{
-			ModelName: model,
-			Content:   content,
-			Done:      false,
-			HasError:  false,
+			ModelName:    model,
+			Content:      data.Content,
+			FullContent:  fullContent,
+			Reasoning:    fullReasoning,
+			HasReasoning: fullReasoning != "",
+			Done:         false,
+			HasError:     false,
 		}
 
 		return onChunk(chunkVO)

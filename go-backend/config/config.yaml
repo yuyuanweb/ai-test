@@ -2,6 +2,12 @@ server:
   port: 8080
   mode: debug  # debug/release
 
+log:
+  dir: logs
+  level: info  # debug/info/warn/error
+  maxAge: 30  # 日志保留天数
+  compress: false  # 是否压缩
+
 database:
   host: localhost
   port: 3306
@@ -16,13 +22,13 @@ database:
 
 redis:
   addr: localhost:6379
-  password: ""
+  password: "111111"
   db: 1
   poolSize: 10
 
 session:
   secret: yupi
-  maxAge: 1800  # 30分钟
+  maxAge: 2592000  # 30天（与Java保持一致）
   cookieName: sessionId
 
 openrouter:
