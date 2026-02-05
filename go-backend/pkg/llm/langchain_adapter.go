@@ -86,7 +86,17 @@ func (a *LangChainAdapter) CallStream(ctx context.Context, prompt, model string,
 }
 
 func (a *LangChainAdapter) CallStreamWithHistory(ctx context.Context, historyMessages []Message, prompt, model string, callback StreamCallback) error {
-	messages := make([]Message, 0, len(historyMessages)+1)
+	return a.CallStreamWithSystemPrompt(ctx, historyMessages, prompt, "", model, callback)
+}
+
+func (a *LangChainAdapter) CallStreamWithSystemPrompt(ctx context.Context, historyMessages []Message, prompt, systemPrompt, model string, callback StreamCallback) error {
+	messages := make([]Message, 0, len(historyMessages)+2)
+	
+	// 如果有系统提示词，添加到消息列表开头
+	if systemPrompt != "" {
+		messages = append(messages, Message{Role: "system", Content: systemPrompt})
+	}
+	
 	messages = append(messages, historyMessages...)
 	messages = append(messages, Message{Role: "user", Content: prompt})
 

@@ -686,3 +686,353 @@ func (s *ConversationService) generateTitle(prompt string) string {
 	}
 	return prompt
 }
+
+func (s *ConversationService) CodeModeStream(req *dto.CodeModeRequest, userID int64, onChunk func(chunk vo.StreamChunkVO) error) error {
+	if len(req.Models) == 0 || len(req.Models) > 8 {
+		return common.NewBusinessException(common.PARAMS_ERROR, "模型数量必须在1-8之间")
+	}
+	if req.Prompt == "" {
+		return common.NewBusinessException(common.PARAMS_ERROR, "需求描述不能为空")
+	}
+
+	conversationID := req.ConversationID
+	if conversationID == "" {
+		createReq := &dto.CreateConversationRequest{
+			Title:              s.generateTitle(req.Prompt),
+			ConversationType:   "side_by_side",
+			Models:             req.Models,
+			CodePreviewEnabled: true,
+		}
+		var err error
+		conversationID, err = s.CreateConversation(createReq, userID)
+		if err != nil {
+			return err
+		}
+	}
+
+	messageIndex, err := s.conversationMessageRepo.GetNextMessageIndex(conversationID)
+	if err != nil {
+		return common.NewBusinessException(common.SYSTEM_ERROR, "获取消息索引失败")
+	}
+
+	userMessage := &model.ConversationMessage{
+		ID:             utils.GenerateUUID(),
+		ConversationID: conversationID,
+		UserID:         userID,
+		MessageIndex:   messageIndex,
+		Role:           "user",
+		Content:        req.Prompt,
+		CreateTime:     time.Now(),
+		UpdateTime:     time.Now(),
+		IsDelete:       0,
+	}
+	if err := s.conversationMessageRepo.Create(userMessage); err != nil {
+		log.Printf("保存user消息失败: %v", err)
+		return common.NewBusinessException(common.SYSTEM_ERROR, "保存消息失败")
+	}
+
+	var wg sync.WaitGroup
+	ctx := context.Background()
+
+	for _, modelName := range req.Models {
+		wg.Add(1)
+		go func(model string) {
+			defer wg.Done()
+
+			historyMessages, err := s.getHistoryMessagesForContext(conversationID, messageIndex, nil)
+			if err != nil {
+				log.Printf("加载历史消息失败: %v", err)
+			}
+
+			langchainMessages := make([]llm.Message, 0)
+			for _, msg := range historyMessages {
+				if msg.Role == "user" {
+					langchainMessages = append(langchainMessages, llm.Message{
+						Role:    "user",
+						Content: msg.Content,
+					})
+				} else if msg.Role == "assistant" && msg.ModelName == model {
+					langchainMessages = append(langchainMessages, llm.Message{
+						Role:    "assistant",
+						Content: msg.Content,
+					})
+				}
+			}
+
+			startTime := time.Now()
+			fullContent := ""
+			fullReasoning := ""
+			outputTokens := 0
+
+			err = s.langchainAdapter.CallStreamWithSystemPrompt(ctx, langchainMessages, req.Prompt, constant.CODE_MODE_SYSTEM_PROMPT, model, func(data llm.StreamData) error {
+				fullContent += data.Content
+				fullReasoning += data.Reasoning
+				outputTokens += (len(data.Content) + len(data.Reasoning)) / 4
+
+				chunk := vo.StreamChunkVO{
+					ConversationID: conversationID,
+					ModelName:      model,
+					Content:        data.Content,
+					FullContent:    fullContent,
+					Reasoning:      fullReasoning,
+					HasReasoning:   fullReasoning != "",
+					OutputTokens:   outputTokens,
+					ElapsedMs:      time.Since(startTime).Milliseconds(),
+					Done:           false,
+					HasError:       false,
+				}
+
+				return onChunk(chunk)
+			})
+
+			responseTimeMs := int(time.Since(startTime).Milliseconds())
+
+			if err != nil {
+				log.Printf("模型 %s 调用失败: %v", model, err)
+				errorChunk := vo.StreamChunkVO{
+					ConversationID: conversationID,
+					ModelName:      model,
+					Error:          err.Error(),
+					HasError:       true,
+					Done:           true,
+				}
+				onChunk(errorChunk)
+				return
+			}
+
+			thinkingTime := 0
+			if fullReasoning != "" {
+				thinkingTime = max(1, min(len(fullReasoning)/200, 60))
+			}
+
+			// 提取代码块
+			codeBlocks := utils.ExtractCodeBlocks(fullContent)
+			var codeBlocksJSON *string
+			hasCodeBlocks := len(codeBlocks) > 0
+			if hasCodeBlocks {
+				codeBlocksData, _ := json.Marshal(codeBlocks)
+				codeBlocksStr := string(codeBlocksData)
+				codeBlocksJSON = &codeBlocksStr
+				log.Printf("📝 提取代码块: 模型=%s, 数量=%d", model, len(codeBlocks))
+			}
+
+			inputTokens := len(req.Prompt) / 4
+			totalTokens := inputTokens + outputTokens
+			cost := s.calculateCostByModel(model, inputTokens, outputTokens)
+
+			doneChunk := vo.StreamChunkVO{
+				ConversationID: conversationID,
+				ModelName:      model,
+				FullContent:    fullContent,
+				Reasoning:      fullReasoning,
+				HasReasoning:   fullReasoning != "",
+				ThinkingTime:   thinkingTime,
+				InputTokens:    inputTokens,
+				OutputTokens:   outputTokens,
+				TotalTokens:    totalTokens,
+				Cost:           cost,
+				ResponseTimeMs: responseTimeMs,
+				CodeBlocks:     codeBlocks,
+				HasCodeBlocks:  hasCodeBlocks,
+				Done:           true,
+				HasError:       false,
+			}
+			onChunk(doneChunk)
+
+			assistantMessageIndex := messageIndex + 1
+			assistantMessage := s.createAssistantMessage(conversationID, userID, assistantMessageIndex, model, fullContent, responseTimeMs, inputTokens, outputTokens)
+			if fullReasoning != "" {
+				assistantMessage.Reasoning = fullReasoning
+			}
+			assistantMessage.CodeBlocks = codeBlocksJSON
+			if err := s.conversationMessageRepo.Create(assistantMessage); err != nil {
+				log.Printf("保存assistant消息失败: %v", err)
+			}
+		}(modelName)
+	}
+
+	wg.Wait()
+	return nil
+}
+
+func (s *ConversationService) CodeModePromptLabStream(req *dto.CodeModePromptLabRequest, userID int64, onChunk func(chunk vo.StreamChunkVO) error) error {
+	if req.Model == "" {
+		return common.NewBusinessException(common.PARAMS_ERROR, "模型不能为空")
+	}
+	if len(req.PromptVariants) < constant.MIN_PROMPT_VARIANTS_COUNT || len(req.PromptVariants) > constant.MAX_PROMPT_VARIANTS_COUNT {
+		return common.NewBusinessException(common.PARAMS_ERROR, "提示词变体数量必须在2-5之间")
+	}
+
+	conversationID := req.ConversationID
+	if conversationID == "" {
+		createReq := &dto.CreateConversationRequest{
+			Title:              s.generateTitle(req.PromptVariants[0]),
+			ConversationType:   "prompt_lab",
+			Models:             []string{req.Model},
+			CodePreviewEnabled: true,
+		}
+		var err error
+		conversationID, err = s.CreateConversation(createReq, userID)
+		if err != nil {
+			return err
+		}
+	}
+
+	userMessageIndex, err := s.conversationMessageRepo.GetNextMessageIndex(conversationID)
+	if err != nil {
+		return common.NewBusinessException(common.SYSTEM_ERROR, "获取消息索引失败")
+	}
+	assistantMessageIndex := userMessageIndex + 1
+
+	for i, promptVariant := range req.PromptVariants {
+		variantIndex := i
+		userMessage := &model.ConversationMessage{
+			ID:             utils.GenerateUUID(),
+			ConversationID: conversationID,
+			UserID:         userID,
+			MessageIndex:   userMessageIndex,
+			Role:           "user",
+			VariantIndex:   &variantIndex,
+			Content:        promptVariant,
+			CreateTime:     time.Now(),
+			UpdateTime:     time.Now(),
+			IsDelete:       0,
+		}
+		if err := s.conversationMessageRepo.Create(userMessage); err != nil {
+			log.Printf("保存user消息失败: %v", err)
+			return common.NewBusinessException(common.SYSTEM_ERROR, "保存消息失败")
+		}
+	}
+
+	var wg sync.WaitGroup
+	ctx := context.Background()
+
+	for i, promptVariant := range req.PromptVariants {
+		wg.Add(1)
+		variantIndex := i
+		go func(variant string, vIndex int) {
+			defer wg.Done()
+
+			historyMessages, err := s.getHistoryMessagesForContext(conversationID, userMessageIndex, &vIndex)
+			if err != nil {
+				log.Printf("加载历史消息失败: %v", err)
+			}
+
+			langchainMessages := make([]llm.Message, 0)
+			for _, msg := range historyMessages {
+				if msg.Role == "user" {
+					langchainMessages = append(langchainMessages, llm.Message{
+						Role:    "user",
+						Content: msg.Content,
+					})
+				} else if msg.Role == "assistant" && msg.ModelName == req.Model {
+					if msg.VariantIndex != nil && *msg.VariantIndex == vIndex {
+						langchainMessages = append(langchainMessages, llm.Message{
+							Role:    "assistant",
+							Content: msg.Content,
+						})
+					}
+				}
+			}
+
+			startTime := time.Now()
+			fullContent := ""
+			fullReasoning := ""
+			outputTokens := 0
+
+			err = s.langchainAdapter.CallStreamWithSystemPrompt(ctx, langchainMessages, variant, constant.CODE_MODE_SYSTEM_PROMPT, req.Model, func(data llm.StreamData) error {
+				fullContent += data.Content
+				fullReasoning += data.Reasoning
+				outputTokens += (len(data.Content) + len(data.Reasoning)) / 4
+
+				chunk := vo.StreamChunkVO{
+					ConversationID: conversationID,
+					ModelName:      req.Model,
+					VariantIndex:   &vIndex,
+					MessageIndex:   &assistantMessageIndex,
+					Content:        data.Content,
+					FullContent:    fullContent,
+					Reasoning:      fullReasoning,
+					HasReasoning:   fullReasoning != "",
+					OutputTokens:   outputTokens,
+					ElapsedMs:      time.Since(startTime).Milliseconds(),
+					Done:           false,
+					HasError:       false,
+				}
+
+				return onChunk(chunk)
+			})
+
+			responseTimeMs := int(time.Since(startTime).Milliseconds())
+
+			if err != nil {
+				log.Printf("模型 %s 变体 %d 调用失败: %v", req.Model, vIndex, err)
+				errorChunk := vo.StreamChunkVO{
+					ConversationID: conversationID,
+					ModelName:      req.Model,
+					VariantIndex:   &vIndex,
+					MessageIndex:   &assistantMessageIndex,
+					Error:          err.Error(),
+					HasError:       true,
+					Done:           true,
+				}
+				onChunk(errorChunk)
+				return
+			}
+
+			thinkingTime := 0
+			if fullReasoning != "" {
+				thinkingTime = max(1, min(len(fullReasoning)/200, 60))
+			}
+
+			// 提取代码块
+			codeBlocks := utils.ExtractCodeBlocks(fullContent)
+			var codeBlocksJSON *string
+			hasCodeBlocks := len(codeBlocks) > 0
+			if hasCodeBlocks {
+				codeBlocksData, _ := json.Marshal(codeBlocks)
+				codeBlocksStr := string(codeBlocksData)
+				codeBlocksJSON = &codeBlocksStr
+				log.Printf("📝 提取代码块: 模型=%s, 变体=%d, 数量=%d", req.Model, vIndex, len(codeBlocks))
+			}
+
+			inputTokens := len(variant) / 4
+			totalTokens := inputTokens + outputTokens
+			cost := s.calculateCostByModel(req.Model, inputTokens, outputTokens)
+
+			doneChunk := vo.StreamChunkVO{
+				ConversationID: conversationID,
+				ModelName:      req.Model,
+				VariantIndex:   &vIndex,
+				MessageIndex:   &assistantMessageIndex,
+				FullContent:    fullContent,
+				Reasoning:      fullReasoning,
+				HasReasoning:   fullReasoning != "",
+				ThinkingTime:   thinkingTime,
+				InputTokens:    inputTokens,
+				OutputTokens:   outputTokens,
+				TotalTokens:    totalTokens,
+				Cost:           cost,
+				ResponseTimeMs: responseTimeMs,
+				CodeBlocks:     codeBlocks,
+				HasCodeBlocks:  hasCodeBlocks,
+				Done:           true,
+				HasError:       false,
+			}
+			onChunk(doneChunk)
+
+			assistantMessage := s.createAssistantMessage(conversationID, userID, assistantMessageIndex, req.Model, fullContent, responseTimeMs, inputTokens, outputTokens)
+			assistantMessage.VariantIndex = &vIndex
+			if fullReasoning != "" {
+				assistantMessage.Reasoning = fullReasoning
+			}
+			assistantMessage.CodeBlocks = codeBlocksJSON
+			if err := s.conversationMessageRepo.Create(assistantMessage); err != nil {
+				log.Printf("保存assistant消息失败: %v", err)
+			}
+		}(promptVariant, variantIndex)
+	}
+
+	wg.Wait()
+	return nil
+}
