@@ -14,6 +14,7 @@ type Config struct {
 	Redis      RedisConfig      `mapstructure:"redis"`
 	Session    SessionConfig    `mapstructure:"session"`
 	OpenRouter OpenRouterConfig `mapstructure:"openrouter"`
+	Log        LogConfig        `mapstructure:"log"`
 }
 
 type ServerConfig struct {
@@ -50,6 +51,13 @@ type SessionConfig struct {
 type OpenRouterConfig struct {
 	APIKey  string `mapstructure:"apiKey"`
 	BaseURL string `mapstructure:"baseURL"`
+}
+
+type LogConfig struct {
+	Dir      string `mapstructure:"dir"`
+	Level    string `mapstructure:"level"`
+	MaxAge   int    `mapstructure:"maxAge"`
+	Compress bool   `mapstructure:"compress"`
 }
 
 var AppConfig *Config

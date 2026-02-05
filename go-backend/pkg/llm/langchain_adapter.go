@@ -52,12 +52,22 @@ func (a *LangChainAdapter) Call(ctx context.Context, prompt, model string) (stri
 	return content, nil
 }
 
-type StreamCallback func(content string) error
+type StreamData struct {
+	Content   string
+	Reasoning string
+}
 
-type StreamChunk struct {
-	ID      string          `json:"id"`
-	Choices []StreamChoice  `json:"choices"`
-	Model   string          `json:"model"`
+type StreamCallback func(data StreamData) error
+
+type Message struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type StreamChunk struct{
+	ID      string         `json:"id"`
+	Choices []StreamChoice `json:"choices"`
+	Model   string         `json:"model"`
 }
 
 type StreamChoice struct {
@@ -66,16 +76,23 @@ type StreamChoice struct {
 }
 
 type StreamDelta struct {
-	Content string `json:"content"`
-	Role    string `json:"role"`
+	Content   string `json:"content"`
+	Reasoning string `json:"reasoning"`
+	Role      string `json:"role"`
 }
 
 func (a *LangChainAdapter) CallStream(ctx context.Context, prompt, model string, callback StreamCallback) error {
+	return a.CallStreamWithHistory(ctx, nil, prompt, model, callback)
+}
+
+func (a *LangChainAdapter) CallStreamWithHistory(ctx context.Context, historyMessages []Message, prompt, model string, callback StreamCallback) error {
+	messages := make([]Message, 0, len(historyMessages)+1)
+	messages = append(messages, historyMessages...)
+	messages = append(messages, Message{Role: "user", Content: prompt})
+
 	reqBody := map[string]interface{}{
-		"model": model,
-		"messages": []map[string]string{
-			{"role": "user", "content": prompt},
-		},
+		"model":       model,
+		"messages":    messages,
 		"temperature": 0.7,
 		"max_tokens":  4096,
 		"stream":      true,
@@ -131,9 +148,16 @@ func (a *LangChainAdapter) CallStream(ctx context.Context, prompt, model string,
 			continue
 		}
 
-		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
-			if err := callback(chunk.Choices[0].Delta.Content); err != nil {
-				return err
+		if len(chunk.Choices) > 0 {
+			delta := chunk.Choices[0].Delta
+			if delta.Content != "" || delta.Reasoning != "" {
+				streamData := StreamData{
+					Content:   delta.Content,
+					Reasoning: delta.Reasoning,
+				}
+				if err := callback(streamData); err != nil {
+					return err
+				}
 			}
 		}
 	}
