@@ -2,19 +2,21 @@
 健康检查接口
 @author <a href="https://codefather.cn">编程导航学习圈</a>
 """
-import logging
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-from app.db import get_db
-from app.db.redis import get_redis
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
 
-router = APIRouter(prefix="/health", tags=["Health"])
-logger = logging.getLogger(__name__)
+from app.db.session import get_db
+from app.core.logging_config import logger
+
+router = APIRouter(prefix="/health", tags=["健康检查"])
 
 
-@router.get("")
+@router.get("", summary="基础健康检查")
 async def health_check():
-    """健康检查接口"""
+    """
+    基础健康检查接口
+    """
     logger.info("健康检查")
     return {
         "status": "ok",
@@ -22,38 +24,22 @@ async def health_check():
     }
 
 
-@router.get("/db")
-async def db_health_check(db: Session = Depends(get_db)):
-    """数据库健康检查"""
+@router.get("/db", summary="数据库健康检查")
+async def db_health_check(db: AsyncSession = Depends(get_db)):
+    """
+    数据库健康检查
+    """
     try:
-        db.execute("SELECT 1")
+        result = await db.execute(text("SELECT 1"))
+        result.scalar()
         logger.info("数据库连接正常")
         return {
             "status": "ok",
             "message": "Database connection is healthy"
         }
     except Exception as e:
-        logger.error("数据库连接失败: %s", str(e))
+        logger.error(f"数据库连接失败: {str(e)}")
         return {
             "status": "error",
             "message": f"Database connection failed: {str(e)}"
-        }
-
-
-@router.get("/redis")
-async def redis_health_check():
-    """Redis健康检查"""
-    try:
-        redis = get_redis()
-        redis.ping()
-        logger.info("Redis连接正常")
-        return {
-            "status": "ok",
-            "message": "Redis connection is healthy"
-        }
-    except Exception as e:
-        logger.error("Redis连接失败: %s", str(e))
-        return {
-            "status": "error",
-            "message": f"Redis connection failed: {str(e)}"
         }
