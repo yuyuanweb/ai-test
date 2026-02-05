@@ -366,3 +366,131 @@ func (h *ConversationHandler) DeleteConversation(c *gin.Context) {
 
 	c.JSON(http.StatusOK, common.Success(true))
 }
+
+// CodeModeStream 代码模式流式对话
+// @Summary      代码模式流式对话
+// @Description  代码模式流式对话，生成HTML代码并支持预览
+// @Tags         对话接口
+// @Accept       json
+// @Produce      text/event-stream
+// @Param        request  body      dto.CodeModeRequest  true  "代码模式请求"
+// @Success      200      {object}  vo.StreamChunkVO     "流式响应"
+// @Router       /conversation/code-mode/stream [post]
+func (h *ConversationHandler) CodeModeStream(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusOK, common.Error(common.NOT_LOGIN_ERROR, "未登录"))
+		return
+	}
+
+	var req dto.CodeModeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("参数绑定失败: %v", err)
+		c.JSON(http.StatusOK, common.Error(common.PARAMS_ERROR, "参数错误"))
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		log.Println("不支持流式响应")
+		c.JSON(http.StatusOK, common.Error(common.SYSTEM_ERROR, "不支持流式响应"))
+		return
+	}
+
+	err := h.conversationService.CodeModeStream(&req, userID.(int64), func(chunk vo.StreamChunkVO) error {
+		data, _ := json.Marshal(chunk)
+		fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+		flusher.Flush()
+		return nil
+	})
+
+	if err != nil {
+		if bizErr, ok := err.(*common.BusinessException); ok {
+			errorData, _ := json.Marshal(map[string]interface{}{
+				"hasError": true,
+				"error":    bizErr.Message,
+				"done":     true,
+			})
+			fmt.Fprintf(c.Writer, "data: %s\n\n", errorData)
+			flusher.Flush()
+		} else {
+			log.Printf("代码模式流式调用失败: %v", err)
+			errorData, _ := json.Marshal(map[string]interface{}{
+				"hasError": true,
+				"error":    "系统内部异常",
+				"done":     true,
+			})
+			fmt.Fprintf(c.Writer, "data: %s\n\n", errorData)
+			flusher.Flush()
+		}
+	}
+}
+
+// CodeModePromptLabStream 代码模式提示词实验室流式对话
+// @Summary      代码模式提示词实验室流式对话
+// @Description  代码模式提示词实验室流式对话，测试不同提示词生成HTML代码的效果
+// @Tags         对话接口
+// @Accept       json
+// @Produce      text/event-stream
+// @Param        request  body      dto.CodeModePromptLabRequest  true  "代码模式提示词实验请求"
+// @Success      200      {object}  vo.StreamChunkVO              "流式响应"
+// @Router       /conversation/code-mode/prompt-lab/stream [post]
+func (h *ConversationHandler) CodeModePromptLabStream(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusOK, common.Error(common.NOT_LOGIN_ERROR, "未登录"))
+		return
+	}
+
+	var req dto.CodeModePromptLabRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("参数绑定失败: %v", err)
+		c.JSON(http.StatusOK, common.Error(common.PARAMS_ERROR, "参数错误"))
+		return
+	}
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		log.Println("不支持流式响应")
+		c.JSON(http.StatusOK, common.Error(common.SYSTEM_ERROR, "不支持流式响应"))
+		return
+	}
+
+	err := h.conversationService.CodeModePromptLabStream(&req, userID.(int64), func(chunk vo.StreamChunkVO) error {
+		data, _ := json.Marshal(chunk)
+		fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+		flusher.Flush()
+		return nil
+	})
+
+	if err != nil {
+		if bizErr, ok := err.(*common.BusinessException); ok {
+			errorData, _ := json.Marshal(map[string]interface{}{
+				"hasError": true,
+				"error":    bizErr.Message,
+				"done":     true,
+			})
+			fmt.Fprintf(c.Writer, "data: %s\n\n", errorData)
+			flusher.Flush()
+		} else {
+			log.Printf("代码模式提示词实验室流式调用失败: %v", err)
+			errorData, _ := json.Marshal(map[string]interface{}{
+				"hasError": true,
+				"error":    "系统内部异常",
+				"done":     true,
+			})
+			fmt.Fprintf(c.Writer, "data: %s\n\n", errorData)
+			flusher.Flush()
+		}
+	}
+}
