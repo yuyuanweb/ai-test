@@ -34,3 +34,9 @@ session:
 openrouter:
   apiKey: "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"
   baseURL: "https://openrouter.ai/api/v1"
+
+rabbitmq:
+  host: localhost
+  port: 5672
+  username: guest
+  password: guest

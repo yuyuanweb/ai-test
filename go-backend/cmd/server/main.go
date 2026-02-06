@@ -21,7 +21,10 @@ import (
 	"ai-test-go/internal/middleware"
 	"ai-test-go/internal/repository"
 	"ai-test-go/internal/service"
+	"ai-test-go/internal/worker"
 	"ai-test-go/pkg/logger"
+	"ai-test-go/pkg/openrouter"
+	"ai-test-go/pkg/rabbitmq"
 
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
@@ -54,20 +57,28 @@ func main() {
 		logger.Log.Info("Redis连接成功")
 	}
 
+	if err := config.InitRabbitMQ(); err != nil {
+		logger.Log.Warnf("初始化RabbitMQ失败: %v (继续运行，但批量测试功能不可用)", err)
+	} else {
+		logger.Log.Info("RabbitMQ连接成功")
+	}
+	defer config.CloseRabbitMQ()
+
 	gin.SetMode(config.AppConfig.Server.Mode)
 
 	r := gin.Default()
 
+	conversationMessageRepo := repository.NewConversationMessageRepository(config.DB)
+	modelRepo := repository.NewModelRepository(config.DB)
+	userModelUsageRepo := repository.NewUserModelUsageRepository(config.DB)
 	userRepo := repository.NewUserRepository(config.DB)
-	userService := service.NewUserService(userRepo)
+	userService := service.NewUserService(userRepo, conversationMessageRepo, userModelUsageRepo, modelRepo)
 	userHandler := handler.NewUserHandler(userService)
 
 	testService := service.NewTestService()
 	testHandler := handler.NewTestHandler(testService)
 
 	conversationRepo := repository.NewConversationRepository(config.DB)
-	conversationMessageRepo := repository.NewConversationMessageRepository(config.DB)
-	modelRepo := repository.NewModelRepository(config.DB)
 	conversationService := service.NewConversationService(conversationRepo, conversationMessageRepo, modelRepo)
 	conversationHandler := handler.NewConversationHandler(conversationService)
 
@@ -78,8 +89,35 @@ func main() {
 	modelService := service.NewModelService(modelRepo)
 	modelHandler := handler.NewModelHandler(modelService)
 
+	sceneRepo := repository.NewSceneRepository(config.DB)
+	scenePromptRepo := repository.NewScenePromptRepository(config.DB)
+	sceneService := service.NewSceneService(sceneRepo, scenePromptRepo, config.DB)
+	sceneHandler := handler.NewSceneHandler(sceneService, userService)
+
+	testTaskRepo := repository.NewTestTaskRepository(config.DB)
+	testResultRepo := repository.NewTestResultRepository(config.DB)
+	userModelUsageService := service.NewUserModelUsageService(userModelUsageRepo)
+	progressService := service.NewProgressNotificationService()
+	rabbitMQClient, _ := rabbitmq.NewRabbitMQClient()
+	batchTestService := service.NewBatchTestService(testTaskRepo, testResultRepo, sceneRepo, scenePromptRepo, rabbitMQClient, config.DB)
+	batchTestHandler := handler.NewBatchTestHandler(batchTestService, userService)
+
+	openRouterClient := openrouter.NewClient(config.AppConfig.OpenRouter.APIKey, config.AppConfig.OpenRouter.BaseURL)
+	
+	// 创建 STOMP + SockJS 处理器
+	stompHandler := handler.NewStompHandler(logger.Log)
+	progressService.SetStompHandler(stompHandler)
+	
+	testWorker := worker.NewTestWorker(testResultRepo, testTaskRepo, batchTestService, modelService, userModelUsageService, progressService, openRouterClient)
+	if err := testWorker.Start(); err != nil {
+		logger.Log.Warnf("TestWorker启动失败: %v (批量测试功能不可用)", err)
+	}
+
 	syncModelJob := job.NewSyncModelJob(modelRepo)
 	syncModelJob.Start()
+
+	// 注册 SockJS handler（必须在 /api 之前，因为它需要处理 /api/ws/* 的所有请求）
+	r.Any("/api/ws/*path", gin.WrapH(stompHandler.GetSockJSHandler()))
 
 	api := r.Group("/api")
 	{
@@ -97,6 +135,7 @@ func main() {
 			user.POST("/delete", middleware.AuthMiddleware(), middleware.AdminAuthMiddleware(), userHandler.DeleteUser)
 			user.POST("/update", middleware.AuthMiddleware(), middleware.AdminAuthMiddleware(), userHandler.UpdateUser)
 			user.POST("/list/page/vo", middleware.AuthMiddleware(), middleware.AdminAuthMiddleware(), userHandler.ListUserByPage)
+			user.GET("/statistics", middleware.AuthMiddleware(), userHandler.GetUserStatistics)
 		}
 
 		test := api.Group("/test")
@@ -131,6 +170,30 @@ func main() {
 		{
 			modelGroup.POST("/list", modelHandler.ListModels)
 			modelGroup.GET("/all", modelHandler.GetAllModels)
+		}
+
+		scene := api.Group("/scene")
+		{
+			scene.POST("/create", middleware.AuthMiddleware(), sceneHandler.CreateScene)
+			scene.POST("/update", middleware.AuthMiddleware(), sceneHandler.UpdateScene)
+			scene.POST("/delete", middleware.AuthMiddleware(), sceneHandler.DeleteScene)
+			scene.GET("/get", middleware.AuthMiddleware(), sceneHandler.GetScene)
+			scene.GET("/list", middleware.AuthMiddleware(), sceneHandler.ListScenes)
+			scene.GET("/list/page", middleware.AuthMiddleware(), sceneHandler.ListScenesPage)
+			scene.GET("/prompts", middleware.AuthMiddleware(), sceneHandler.GetScenePrompts)
+			scene.POST("/prompt/add", middleware.AuthMiddleware(), sceneHandler.AddScenePrompt)
+			scene.POST("/prompt/update", middleware.AuthMiddleware(), sceneHandler.UpdateScenePrompt)
+			scene.POST("/prompt/delete", middleware.AuthMiddleware(), sceneHandler.DeleteScenePrompt)
+		}
+
+		batchTest := api.Group("/batch-test")
+		{
+			batchTest.POST("/create", middleware.AuthMiddleware(), batchTestHandler.CreateBatchTestTask)
+			batchTest.GET("/task/get", middleware.AuthMiddleware(), batchTestHandler.GetTask)
+			batchTest.POST("/task/list/page", middleware.AuthMiddleware(), batchTestHandler.ListTasks)
+			batchTest.POST("/task/delete", middleware.AuthMiddleware(), batchTestHandler.DeleteTask)
+			batchTest.GET("/result/list", middleware.AuthMiddleware(), batchTestHandler.GetTaskResults)
+			batchTest.POST("/result/rating", middleware.AuthMiddleware(), batchTestHandler.UpdateTestResultRating)
 		}
 	}
 

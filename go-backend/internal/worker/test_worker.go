@@ -1,0 +1,230 @@
+// Package worker 测试任务异步执行器
+// @author <a href="https://codefather.cn">编程导航学习圈</a>
+package worker
+
+import (
+	"ai-test-go/internal/config"
+	"ai-test-go/internal/constant"
+	"ai-test-go/internal/model"
+	"ai-test-go/internal/model/dto"
+	"ai-test-go/internal/model/vo"
+	"ai-test-go/internal/repository"
+	"ai-test-go/internal/service"
+	"ai-test-go/pkg/logger"
+	"ai-test-go/pkg/openrouter"
+	"ai-test-go/pkg/utils"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	amqp "github.com/rabbitmq/amqp091-go"
+)
+
+type TestWorker struct {
+	testResultRepo        *repository.TestResultRepository
+	testTaskRepo          *repository.TestTaskRepository
+	batchTestService      *service.BatchTestService
+	modelService          *service.ModelService
+	userModelUsageService *service.UserModelUsageService
+	progressService       *service.ProgressNotificationService
+	openRouterClient      *openrouter.Client
+}
+
+func NewTestWorker(
+	testResultRepo *repository.TestResultRepository,
+	testTaskRepo *repository.TestTaskRepository,
+	batchTestService *service.BatchTestService,
+	modelService *service.ModelService,
+	userModelUsageService *service.UserModelUsageService,
+	progressService *service.ProgressNotificationService,
+	openRouterClient *openrouter.Client,
+) *TestWorker {
+	return &TestWorker{
+		testResultRepo:        testResultRepo,
+		testTaskRepo:          testTaskRepo,
+		batchTestService:      batchTestService,
+		modelService:          modelService,
+		userModelUsageService: userModelUsageService,
+		progressService:       progressService,
+		openRouterClient:      openRouterClient,
+	}
+}
+
+func (w *TestWorker) Start() error {
+	if config.RabbitMQChannel == nil {
+		logger.Log.Warn("RabbitMQ未初始化，TestWorker跳过启动")
+		return nil
+	}
+
+	msgs, err := config.RabbitMQChannel.Consume(
+		constant.TestQueue,
+		"",
+		false,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("消费队列失败: %w", err)
+	}
+
+	logger.Log.Info("TestWorker启动成功，开始监听队列")
+
+	go func() {
+		for d := range msgs {
+			w.processSubTask(d)
+		}
+	}()
+
+	return nil
+}
+
+func (w *TestWorker) processSubTask(d amqp.Delivery) {
+	var subTask dto.SubTaskMessage
+	if err := json.Unmarshal(d.Body, &subTask); err != nil {
+		logger.Log.Errorf("解析子任务消息失败: %v", err)
+		d.Ack(false)
+		return
+	}
+
+	logger.Log.Infof("开始处理子任务: taskId=%s, model=%s, prompt=%s",
+		subTask.TaskID, subTask.ModelName, subTask.PromptTitle)
+
+	startTime := time.Now()
+	resultID := utils.GenerateUUID()
+
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Log.Errorf("子任务执行崩溃: taskId=%s, model=%s, error=%v",
+				subTask.TaskID, subTask.ModelName, r)
+			w.batchTestService.MarkTaskFailed(subTask.TaskID)
+			d.Nack(false, false)
+		}
+	}()
+
+	task, err := w.testTaskRepo.FindByID(subTask.TaskID)
+	if err != nil {
+		logger.Log.Errorf("任务不存在: taskId=%s", subTask.TaskID)
+		d.Ack(false)
+		return
+	}
+
+	if task.Status == "cancelled" || task.Status == "failed" {
+		logger.Log.Warnf("任务已取消或失败，跳过子任务: taskId=%s, status=%s", subTask.TaskID, task.Status)
+		d.Ack(false)
+		return
+	}
+
+	var configMap map[string]interface{}
+	if subTask.Config != "" {
+		json.Unmarshal([]byte(subTask.Config), &configMap)
+	}
+
+	req := &openrouter.ChatRequest{
+		Model: subTask.ModelName,
+		Messages: []openrouter.Message{
+			{
+				Role:    "user",
+				Content: subTask.PromptContent,
+			},
+		},
+	}
+
+	if temp, ok := configMap["temperature"].(float64); ok {
+		req.Temperature = temp
+	}
+	if maxTokens, ok := configMap["maxTokens"].(float64); ok {
+		req.MaxTokens = int(maxTokens)
+	}
+
+	resp, err := w.openRouterClient.Chat(req)
+	if err != nil {
+		logger.Log.Errorf("调用OpenRouter失败: taskId=%s, model=%s, error=%v",
+			subTask.TaskID, subTask.ModelName, err)
+		w.batchTestService.MarkTaskFailed(subTask.TaskID)
+		d.Nack(false, true)
+		return
+	}
+
+	responseTimeMs := int(time.Since(startTime).Milliseconds())
+	outputText := ""
+	if len(resp.Choices) > 0 {
+		outputText = resp.Choices[0].Message.Content
+	}
+
+	inputTokens := resp.Usage.PromptTokens
+	outputTokens := resp.Usage.CompletionTokens
+
+	cost := w.calculateCost(subTask.ModelName, inputTokens, outputTokens)
+
+	testResult := &model.TestResult{
+		ID:             resultID,
+		TaskID:         subTask.TaskID,
+		UserID:         subTask.UserID,
+		SceneID:        subTask.SceneID,
+		PromptID:       subTask.PromptID,
+		ModelName:      subTask.ModelName,
+		InputPrompt:    subTask.PromptContent,
+		OutputText:     outputText,
+		ResponseTimeMs: responseTimeMs,
+		InputTokens:    inputTokens,
+		OutputTokens:   outputTokens,
+		Cost:           cost,
+		AIScore:        "{}",
+		IsDelete:       0,
+	}
+
+	if err := w.testResultRepo.Create(testResult); err != nil {
+		logger.Log.Errorf("保存测试结果失败: taskId=%s, error=%v", subTask.TaskID, err)
+		d.Nack(false, true)
+		return
+	}
+
+	totalTokens := int64(inputTokens + outputTokens)
+	w.modelService.UpdateModelUsage(subTask.ModelName, totalTokens, cost)
+
+	if subTask.UserID > 0 {
+		w.userModelUsageService.UpdateUserModelUsage(subTask.UserID, subTask.ModelName, totalTokens, cost)
+	}
+
+	w.batchTestService.UpdateTaskProgress(subTask.TaskID)
+
+	updatedTask, err := w.testTaskRepo.FindByID(subTask.TaskID)
+	if err == nil {
+		percentage := 0
+		if updatedTask.TotalSubtasks > 0 {
+			percentage = (updatedTask.CompletedSubtasks * 100) / updatedTask.TotalSubtasks
+		}
+
+		w.progressService.SendProgress(subTask.TaskID, &vo.TaskProgressVO{
+			TaskID:            subTask.TaskID,
+			Percentage:        percentage,
+			CompletedSubtasks: updatedTask.CompletedSubtasks,
+			TotalSubtasks:     updatedTask.TotalSubtasks,
+			CurrentModel:      subTask.ModelName,
+			CurrentPrompt:     subTask.PromptTitle,
+			Status:            updatedTask.Status,
+			Timestamp:         time.Now().UnixMilli(),
+		})
+	}
+
+	logger.Log.Infof("子任务完成: taskId=%s, model=%s, prompt=%s, responseTime=%dms, tokens=%d/%d, cost=$%.6f",
+		subTask.TaskID, subTask.ModelName, subTask.PromptTitle,
+		responseTimeMs, inputTokens, outputTokens, cost)
+
+	d.Ack(false)
+}
+
+func (w *TestWorker) calculateCost(modelName string, inputTokens, outputTokens int) float64 {
+	pricing := w.modelService.GetModelPricing(modelName)
+	if pricing == nil {
+		logger.Log.Warnf("模型不存在，使用默认价格: modelName=%s", modelName)
+		return (float64(inputTokens)*0.5 + float64(outputTokens)*1.5) / 1000000.0
+	}
+
+	inputCost := float64(inputTokens) * pricing.InputPrice / 1000000.0
+	outputCost := float64(outputTokens) * pricing.OutputPrice / 1000000.0
+
+	return inputCost + outputCost
+}

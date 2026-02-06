@@ -97,3 +97,13 @@ func (r *ModelRepository) GetAll() ([]model.Model, error) {
 		Find(&models).Error
 	return models, err
 }
+
+func (r *ModelRepository) Count() (int64, error) {
+	var count int64
+	err := r.db.Model(&model.Model{}).Where("isDelete = 0").Count(&count).Error
+	return count, err
+}
+
+func (r *ModelRepository) UpdateByID(id string, updates map[string]interface{}) error {
+	return r.db.Model(&model.Model{}).Where("id = ?", id).Updates(updates).Error
+}
