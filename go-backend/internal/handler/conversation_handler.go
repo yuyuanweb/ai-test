@@ -286,10 +286,10 @@ func (h *ConversationHandler) ListConversations(c *gin.Context) {
 	}
 
 	pageResp := dto.PageResponse{
-		Total:    total,
-		PageNum:  pageNum,
-		PageSize: pageSize,
-		Records:  conversations,
+		Total:   total,
+		Current: int64(pageNum),
+		Size:    int64(pageSize),
+		Records: conversations,
 	}
 
 	c.JSON(http.StatusOK, common.Success(pageResp))

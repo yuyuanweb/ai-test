@@ -30,3 +30,10 @@ func ErrorWithData(code int, message string, data interface{}) *BaseResponse {
 		Data:    data,
 	}
 }
+
+func ErrorWithDefaultMsg(errorCode int) *BaseResponse {
+	return &BaseResponse{
+		Code:    errorCode,
+		Message: GetErrorMessage(errorCode),
+	}
+}

@@ -3,5 +3,9 @@
 package dto
 
 type DeleteRequest struct {
+	ID string `json:"id" binding:"required"`
+}
+
+type DeleteIntRequest struct {
 	ID int64 `json:"id" binding:"required"`
 }

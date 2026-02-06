@@ -33,10 +33,10 @@ func (s *ModelService) ListModels(req *dto.ModelQueryRequest, userID *int64) (*d
 	}
 
 	return &dto.PageResponse{
-		Total:    total,
-		PageNum:  req.Current,
-		PageSize: req.PageSize,
-		Records:  records,
+		Total:   total,
+		Current: req.Current,
+		Size:    req.PageSize,
+		Records: records,
 	}, nil
 }
 
@@ -79,4 +79,34 @@ func (s *ModelService) convertToVO(m *model.Model, userID *int64) vo.ModelVO {
 		UserTotalTokens:     0,
 		UserTotalCost:       0,
 	}
+}
+
+func (s *ModelService) GetModelPricing(modelName string) *vo.ModelPricingVO {
+	m, err := s.modelRepo.FindByID(modelName)
+	if err != nil {
+		return nil
+	}
+
+	return &vo.ModelPricingVO{
+		InputPrice:  m.InputPrice,
+		OutputPrice: m.OutputPrice,
+	}
+}
+
+func (s *ModelService) UpdateModelUsage(modelName string, tokens int64, cost float64) error {
+	if modelName == "" || tokens <= 0 {
+		return nil
+	}
+
+	m, err := s.modelRepo.FindByID(modelName)
+	if err != nil {
+		return nil
+	}
+
+	updates := map[string]interface{}{
+		"totalTokens": m.TotalTokens + tokens,
+		"totalCost":   m.TotalCost + cost,
+	}
+
+	return s.modelRepo.UpdateByID(modelName, updates)
 }

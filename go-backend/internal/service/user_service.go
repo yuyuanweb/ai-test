@@ -16,12 +16,23 @@ import (
 )
 
 type UserService struct {
-	userRepo *repository.UserRepository
+	userRepo                *repository.UserRepository
+	conversationMessageRepo *repository.ConversationMessageRepository
+	userModelUsageRepo      *repository.UserModelUsageRepository
+	modelRepo               *repository.ModelRepository
 }
 
-func NewUserService(userRepo *repository.UserRepository) *UserService {
+func NewUserService(
+	userRepo *repository.UserRepository,
+	conversationMessageRepo *repository.ConversationMessageRepository,
+	userModelUsageRepo *repository.UserModelUsageRepository,
+	modelRepo *repository.ModelRepository,
+) *UserService {
 	return &UserService{
-		userRepo: userRepo,
+		userRepo:                userRepo,
+		conversationMessageRepo: conversationMessageRepo,
+		userModelUsageRepo:      userModelUsageRepo,
+		modelRepo:               modelRepo,
 	}
 }
 
@@ -283,4 +294,54 @@ func (s *UserService) ListUserByPage(req *dto.UserQueryRequest) ([]*model.User, 
 	}
 
 	return result, total, nil
+}
+
+func (s *UserService) GetUserStatistics(userID int64) (*vo.UserStatisticsVO, error) {
+	statistics := &vo.UserStatisticsVO{}
+
+	totalModels, err := s.modelRepo.Count()
+	if err == nil {
+		statistics.TotalModels = totalModels
+	}
+
+	userUsages, err := s.userModelUsageRepo.ListByUserID(userID)
+	if err == nil {
+		var totalTokens int64
+		var totalCost float64
+		for _, usage := range userUsages {
+			totalTokens += usage.TotalTokens
+			totalCost += usage.TotalCost
+		}
+		statistics.TotalTokens = totalTokens
+		statistics.TotalCost = totalCost
+	}
+
+	todayCost, err := s.conversationMessageRepo.GetTodayCostByUserID(userID)
+	if err == nil {
+		statistics.TodayCost = todayCost
+	}
+
+	monthCost, err := s.conversationMessageRepo.GetMonthCostByUserID(userID)
+	if err == nil {
+		statistics.MonthCost = monthCost
+	}
+
+	user, err := s.userRepo.FindByID(userID)
+	if err == nil && user != nil {
+		statistics.DailyBudget = user.DailyBudget
+		statistics.MonthlyBudget = user.MonthlyBudget
+		statistics.BudgetAlertThreshold = user.BudgetAlertThreshold
+
+		if user.DailyBudget > 0 {
+			statistics.DailyBudgetUsagePercent = (todayCost / user.DailyBudget) * 100
+			statistics.DailyBudgetAlert = statistics.DailyBudgetUsagePercent >= float64(user.BudgetAlertThreshold)
+		}
+
+		if user.MonthlyBudget > 0 {
+			statistics.MonthlyBudgetUsagePercent = (monthCost / user.MonthlyBudget) * 100
+			statistics.MonthlyBudgetAlert = statistics.MonthlyBudgetUsagePercent >= float64(user.BudgetAlertThreshold)
+		}
+	}
+
+	return statistics, nil
 }

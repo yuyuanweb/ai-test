@@ -3,8 +3,23 @@
 package dto
 
 type PageResponse struct {
-	Total    int64       `json:"total"`
-	PageNum  int64       `json:"pageNum"`
-	PageSize int64       `json:"pageSize"`
-	Records  interface{} `json:"records"`
+	Records interface{} `json:"records"`
+	Total   int64       `json:"total"`
+	Size    int64       `json:"size"`
+	Current int64       `json:"current"`
+	Pages   int64       `json:"pages"`
+}
+
+func NewPageResponse(records interface{}, total, current, size int64) *PageResponse {
+	pages := total / size
+	if total%size != 0 {
+		pages++
+	}
+	return &PageResponse{
+		Records: records,
+		Total:   total,
+		Size:    size,
+		Current: current,
+		Pages:   pages,
+	}
 }

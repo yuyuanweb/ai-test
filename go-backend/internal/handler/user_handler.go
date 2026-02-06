@@ -288,11 +288,11 @@ func (h *UserHandler) GetUserVOByID(c *gin.Context) {
 // @Tags         用户管理
 // @Accept       json
 // @Produce      json
-// @Param        request  body      dto.DeleteRequest  true  "删除请求"
+// @Param        request  body      dto.DeleteIntRequest  true  "删除请求"
 // @Success      200      {object}  common.BaseResponse{data=bool}  "成功"
 // @Router       /user/delete [post]
 func (h *UserHandler) DeleteUser(c *gin.Context) {
-	var req dto.DeleteRequest
+	var req dto.DeleteIntRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		log.Printf("参数绑定失败: %v", err)
 		c.JSON(http.StatusOK, common.Error(common.PARAMS_ERROR, "参数错误"))
@@ -378,11 +378,41 @@ func (h *UserHandler) ListUserByPage(c *gin.Context) {
 	userVOList := h.userService.GetUserVOList(users)
 
 	pageResp := dto.PageResponse{
-		Total:    total,
-		PageNum:  req.PageNum,
-		PageSize: req.PageSize,
-		Records:  userVOList,
+		Total:   total,
+		Current: req.PageNum,
+		Size:    req.PageSize,
+		Records: userVOList,
 	}
 
 	c.JSON(http.StatusOK, common.Success(pageResp))
+}
+
+// GetUserStatistics 获取用户统计数据
+// @Summary      获取用户统计数据
+// @Description  获取用户的模型使用统计、花费等数据
+// @Tags         用户管理
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  common.BaseResponse{data=vo.UserStatisticsVO}  "获取成功"
+// @Failure      400  {object}  common.BaseResponse  "参数错误"
+// @Router       /user/statistics [get]
+func (h *UserHandler) GetUserStatistics(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusOK, common.ErrorWithDefaultMsg(common.NOT_LOGIN_ERROR))
+		return
+	}
+
+	statistics, err := h.userService.GetUserStatistics(userID.(int64))
+	if err != nil {
+		if bizErr, ok := err.(*common.BusinessException); ok {
+			c.JSON(http.StatusOK, common.Error(bizErr.Code, bizErr.Message))
+		} else {
+			log.Printf("获取用户统计数据失败: %v", err)
+			c.JSON(http.StatusOK, common.Error(common.SYSTEM_ERROR, "系统内部异常"))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, common.Success(statistics))
 }

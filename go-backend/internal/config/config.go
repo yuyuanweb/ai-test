@@ -14,6 +14,7 @@ type Config struct {
 	Redis      RedisConfig      `mapstructure:"redis"`
 	Session    SessionConfig    `mapstructure:"session"`
 	OpenRouter OpenRouterConfig `mapstructure:"openrouter"`
+	RabbitMQ   RabbitMQConfig   `mapstructure:"rabbitmq"`
 	Log        LogConfig        `mapstructure:"log"`
 }
 
@@ -51,6 +52,13 @@ type SessionConfig struct {
 type OpenRouterConfig struct {
 	APIKey  string `mapstructure:"apiKey"`
 	BaseURL string `mapstructure:"baseURL"`
+}
+
+type RabbitMQConfig struct {
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
 }
 
 type LogConfig struct {
