@@ -107,3 +107,12 @@ func (r *ModelRepository) Count() (int64, error) {
 func (r *ModelRepository) UpdateByID(id string, updates map[string]interface{}) error {
 	return r.db.Model(&model.Model{}).Where("id = ?", id).Updates(updates).Error
 }
+
+// ListDomesticForJudge 查询国内模型列表用于AI评委（isChina=1，按推荐排序）
+func (r *ModelRepository) ListDomesticForJudge() ([]model.Model, error) {
+	var models []model.Model
+	err := r.db.Where("isDelete = 0 AND isChina = 1").
+		Order("recommended DESC, updateTime DESC").
+		Find(&models).Error
+	return models, err
+}

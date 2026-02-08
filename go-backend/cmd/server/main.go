@@ -106,12 +106,13 @@ func main() {
 	reportHandler := handler.NewReportHandler(reportService)
 
 	openRouterClient := openrouter.NewClient(config.AppConfig.OpenRouter.APIKey, config.AppConfig.OpenRouter.BaseURL)
-	
-	// 创建 STOMP + SockJS 处理器
+
+	aiScoringService := service.NewAIScoringService(openRouterClient, modelRepo, userModelUsageService)
+
 	stompHandler := handler.NewStompHandler(logger.Log)
 	progressService.SetStompHandler(stompHandler)
-	
-	testWorker := worker.NewTestWorker(testResultRepo, testTaskRepo, batchTestService, modelService, userModelUsageService, progressService, openRouterClient)
+
+	testWorker := worker.NewTestWorker(testResultRepo, testTaskRepo, batchTestService, modelService, userModelUsageService, progressService, openRouterClient, aiScoringService)
 	if err := testWorker.Start(); err != nil {
 		logger.Log.Warnf("TestWorker启动失败: %v (批量测试功能不可用)", err)
 	}

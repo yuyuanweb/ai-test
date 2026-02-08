@@ -28,6 +28,7 @@ type TestWorker struct {
 	userModelUsageService *service.UserModelUsageService
 	progressService       *service.ProgressNotificationService
 	openRouterClient      *openrouter.Client
+	aiScoringService      *service.AIScoringService
 }
 
 func NewTestWorker(
@@ -38,6 +39,7 @@ func NewTestWorker(
 	userModelUsageService *service.UserModelUsageService,
 	progressService *service.ProgressNotificationService,
 	openRouterClient *openrouter.Client,
+	aiScoringService *service.AIScoringService,
 ) *TestWorker {
 	return &TestWorker{
 		testResultRepo:        testResultRepo,
@@ -47,6 +49,7 @@ func NewTestWorker(
 		userModelUsageService: userModelUsageService,
 		progressService:       progressService,
 		openRouterClient:      openRouterClient,
+		aiScoringService:      aiScoringService,
 	}
 }
 
@@ -188,6 +191,31 @@ func (w *TestWorker) processSubTask(d amqp.Delivery) {
 		w.userModelUsageService.UpdateUserModelUsage(subTask.UserID, subTask.ModelName, totalTokens, cost)
 	}
 
+	enableAiScoring := isEnableAiScoring(configMap)
+	if enableAiScoring && w.aiScoringService != nil {
+		logger.Log.Infof("执行AI评分: taskId=%s, model=%s, prompt=%s", subTask.TaskID, subTask.ModelName, subTask.PromptTitle)
+		aiScoreResult, err := w.aiScoringService.ScoreWithMultipleJudges(
+			subTask.PromptContent,
+			outputText,
+			subTask.ModelName,
+			subTask.UserID,
+		)
+		if err != nil {
+			logger.Log.Errorf("AI评分失败: taskId=%s, model=%s, prompt=%s, error=%v",
+				subTask.TaskID, subTask.ModelName, subTask.PromptTitle, err)
+		} else {
+			aiScoreJSON, _ := json.Marshal(aiScoreResult)
+			if err := w.testResultRepo.UpdateByID(resultID, map[string]interface{}{"aiScore": string(aiScoreJSON)}); err != nil {
+				logger.Log.Warnf("更新测试结果AI评分失败: resultId=%s, error=%v", resultID, err)
+			} else {
+				logger.Log.Infof("AI评分已写入: taskId=%s, model=%s, judges=%d, averageRating=%.2f",
+					subTask.TaskID, subTask.ModelName, len(aiScoreResult.Judges), aiScoreResult.AverageRating)
+			}
+		}
+	} else if enableAiScoring && w.aiScoringService == nil {
+		logger.Log.Warn("已开启AI评分但 aiScoringService 未注入，跳过评分")
+	}
+
 	w.batchTestService.UpdateTaskProgress(subTask.TaskID)
 
 	updatedTask, err := w.testTaskRepo.FindByID(subTask.TaskID)
@@ -214,6 +242,26 @@ func (w *TestWorker) processSubTask(d amqp.Delivery) {
 		responseTimeMs, inputTokens, outputTokens, cost)
 
 	d.Ack(false)
+}
+
+func isEnableAiScoring(configMap map[string]interface{}) bool {
+	if configMap == nil {
+		return false
+	}
+	v, ok := configMap["enableAiScoring"]
+	if !ok {
+		return false
+	}
+	switch val := v.(type) {
+	case bool:
+		return val
+	case float64:
+		return val != 0
+	case int:
+		return val != 0
+	default:
+		return false
+	}
 }
 
 func (w *TestWorker) calculateCost(modelName string, inputTokens, outputTokens int) float64 {
