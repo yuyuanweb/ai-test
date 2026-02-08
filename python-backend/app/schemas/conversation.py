@@ -42,11 +42,13 @@ class SideBySideRequest(BaseModel):
 
 class PromptLabRequest(BaseModel):
     """Prompt Lab 单模型多提示词对比请求"""
-    conversation_id: Optional[str] = Field(None, description="对话ID（可选）")
+    conversation_id: Optional[str] = Field(None, description="对话ID（可选）", alias="conversationId")
     model: str = Field(..., description="模型名称")
-    prompt_variants: List[str] = Field(..., description="提示词变体列表")
-    variant_image_urls: Optional[List[List[str]]] = Field(None, description="每个变体的图片URL列表")
-    web_search_enabled: Optional[bool] = Field(False, description="是否启用联网搜索")
+    prompt_variants: List[str] = Field(..., description="提示词变体列表", alias="promptVariants")
+    variant_image_urls: Optional[List[List[str]]] = Field(None, description="每个变体的图片URL列表", alias="variantImageUrls")
+    web_search_enabled: Optional[bool] = Field(False, description="是否启用联网搜索", alias="webSearchEnabled")
+
+    model_config = {"populate_by_name": True}
 
 
 class BattleRequest(BaseModel):

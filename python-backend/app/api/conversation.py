@@ -12,6 +12,7 @@ from app.schemas.conversation import (
     CreateConversationRequest,
     ChatRequest,
     SideBySideRequest,
+    PromptLabRequest,
     DeleteConversationRequest,
     ConversationVO,
     ConversationQueryRequest,
@@ -82,6 +83,30 @@ async def side_by_side_stream(
     
     return StreamingResponse(
         conversation_service.side_by_side_stream(request_data, login_user.id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@router.post("/prompt-lab/stream", summary="Prompt Lab单模型多提示词对比(流式)")
+async def prompt_lab_stream(
+    request_data: PromptLabRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Prompt Lab 单模型多提示词对比（流式响应）
+    """
+    login_user = await UserService.get_login_user(db, http_request)
+
+    conversation_service = ConversationService(db)
+
+    return StreamingResponse(
+        conversation_service.prompt_lab_stream(request_data, login_user.id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
