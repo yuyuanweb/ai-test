@@ -446,7 +446,7 @@ func (s *ReportService) convertToTestResultVOs(testResults []model.TestResult) [
 	return vos
 }
 
-// parseAiScoreTotal 解析AI评分JSON中的total字段
+// parseAiScoreTotal 解析AI评分JSON，优先使用 averageRating（多评委），兼容 total 字段
 func (s *ReportService) parseAiScoreTotal(aiScoreJSON string) float64 {
 	if aiScoreJSON == "" {
 		return 0.0
@@ -458,15 +458,23 @@ func (s *ReportService) parseAiScoreTotal(aiScoreJSON string) float64 {
 		return 0.0
 	}
 
-	totalObj, ok := aiScoreMap["total"]
+	if v := parseNumberFromMap(aiScoreMap, "averageRating"); v > 0 {
+		return v
+	}
+	return parseNumberFromMap(aiScoreMap, "total")
+}
+
+func parseNumberFromMap(m map[string]interface{}, key string) float64 {
+	obj, ok := m[key]
 	if !ok {
 		return 0.0
 	}
-
-	switch v := totalObj.(type) {
+	switch v := obj.(type) {
 	case float64:
 		return v
 	case int:
+		return float64(v)
+	case int64:
 		return float64(v)
 	default:
 		return 0.0
