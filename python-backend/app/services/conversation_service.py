@@ -9,7 +9,7 @@ import time
 from typing import List, Optional, Dict, Any, AsyncGenerator
 from decimal import Decimal
 from datetime import datetime
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openai import AsyncOpenAI
@@ -23,6 +23,7 @@ from app.models.model import Model
 from app.schemas.conversation import (
     CreateConversationRequest,
     SideBySideRequest,
+    PromptLabRequest,
     StreamChunkVO,
     ConversationVO,
     ConversationMessageVO
@@ -32,6 +33,9 @@ from app.core.config import get_settings
 from app.utils.cost_calculator import CostCalculator
 
 settings = get_settings()
+
+MIN_PROMPT_VARIANTS_COUNT = 2
+MAX_PROMPT_VARIANTS_COUNT = 5
 
 
 class ConversationService:
@@ -214,9 +218,126 @@ class ConversationService:
             )
             tasks.append(task)
         
-        async for event in self._merge_streams(tasks):
+        async for event in self._merge_streams(tasks, request.models):
             yield event
-    
+
+    async def prompt_lab_stream(
+        self,
+        request: PromptLabRequest,
+        user_id: int
+    ) -> AsyncGenerator[str, None]:
+        """
+        Prompt Lab 单模型多提示词对比（SSE 流式响应）
+        """
+        self._validate_prompt_lab_request(request)
+
+        conversation_id = request.conversation_id
+        if not conversation_id:
+            conversation_id = str(uuid.uuid4())
+            conversation = Conversation(
+                id=conversation_id,
+                user_id=user_id,
+                title=self._generate_title(request.prompt_variants[0]),
+                conversation_type="prompt_lab",
+                models=json.dumps([request.model]),
+                code_preview_enabled=0,
+                is_anonymous=0,
+                total_tokens=0,
+                total_cost=Decimal('0'),
+                is_delete=0
+            )
+            self.db.add(conversation)
+            await self.db.commit()
+
+        user_message_index = await self._get_next_message_index(conversation_id)
+        assistant_message_index = user_message_index + 1
+
+        for i, prompt_variant in enumerate(request.prompt_variants):
+            image_urls = None
+            if request.variant_image_urls and i < len(request.variant_image_urls):
+                image_urls = request.variant_image_urls[i]
+
+            await self._save_prompt_lab_user_message(
+                conversation_id,
+                user_id,
+                user_message_index,
+                i,
+                prompt_variant,
+                image_urls
+            )
+
+        tasks = []
+        for i, prompt_variant in enumerate(request.prompt_variants):
+            image_urls = None
+            if request.variant_image_urls and i < len(request.variant_image_urls):
+                image_urls = request.variant_image_urls[i]
+
+            task = self._stream_single_model(
+                conversation_id,
+                user_id,
+                request.model,
+                prompt_variant,
+                assistant_message_index,
+                i,
+                image_urls,
+                request.web_search_enabled or False
+            )
+            tasks.append(task)
+
+        model_names = [request.model] * len(request.prompt_variants)
+        async for event in self._merge_streams(tasks, model_names):
+            yield event
+
+    def _validate_prompt_lab_request(self, request: PromptLabRequest):
+        """校验 Prompt Lab 请求参数"""
+        if not request.model or not request.model.strip():
+            raise BusinessException(ErrorCode.PARAMS_ERROR, "模型不能为空")
+        if not request.prompt_variants or len(request.prompt_variants) == 0:
+            raise BusinessException(ErrorCode.PARAMS_ERROR, "提示词变体列表不能为空")
+        if len(request.prompt_variants) < MIN_PROMPT_VARIANTS_COUNT or len(request.prompt_variants) > MAX_PROMPT_VARIANTS_COUNT:
+            raise BusinessException(
+                ErrorCode.PARAMS_ERROR,
+                f"提示词变体数量必须在{MIN_PROMPT_VARIANTS_COUNT}-{MAX_PROMPT_VARIANTS_COUNT}个之间"
+            )
+
+    async def _get_next_message_index(self, conversation_id: str) -> int:
+        """获取下一个可用的消息索引"""
+        result = await self.db.execute(
+            select(func.max(ConversationMessage.message_index))
+            .where(
+                and_(
+                    ConversationMessage.conversation_id == conversation_id,
+                    ConversationMessage.is_delete == 0
+                )
+            )
+        )
+        max_index = result.scalar()
+        return (max_index + 1) if max_index is not None else 0
+
+    async def _save_prompt_lab_user_message(
+        self,
+        conversation_id: str,
+        user_id: int,
+        message_index: int,
+        variant_index: int,
+        content: str,
+        image_urls: Optional[List[str]]
+    ):
+        """保存 Prompt Lab 变体的用户消息"""
+        message = ConversationMessage(
+            id=str(uuid.uuid4()),
+            conversation_id=conversation_id,
+            user_id=user_id,
+            message_index=message_index,
+            role="user",
+            variant_index=variant_index,
+            content=content,
+            images=json.dumps(image_urls) if image_urls else None,
+            is_delete=0
+        )
+        self.db.add(message)
+        await self.db.commit()
+
     async def _stream_single_model(
         self,
         conversation_id: str,
@@ -352,11 +473,16 @@ class ConversationService:
             content_count = 0
             
             timeout_seconds = 30
+            stream_total_timeout_seconds = 120
             stream_timeout = False
             
             stream_iter = stream.__aiter__()
             
             while True:
+                if (time.time() - start_time) > stream_total_timeout_seconds:
+                    logger.warning(f"⚠️  流式总时长超时: 对话ID={conversation_id}, 模型={model_name}, {stream_total_timeout_seconds}秒，强制结束")
+                    stream_timeout = True
+                    break
                 try:
                     chunk = await asyncio.wait_for(stream_iter.__anext__(), timeout=timeout_seconds)
                 except asyncio.TimeoutError:
@@ -508,13 +634,15 @@ class ConversationService:
     
     async def _merge_streams(
         self,
-        tasks: List[AsyncGenerator[str, None]]
+        tasks: List[AsyncGenerator[str, None]],
+        model_names: List[str]
     ) -> AsyncGenerator[str, None]:
         """
         合并多个流式响应
         
         Args:
             tasks: 异步生成器列表
+            model_names: 与 tasks 一一对应的模型名称，用于错误 chunk 中携带 model_name
             
         Yields:
             合并后的SSE事件
@@ -522,28 +650,57 @@ class ConversationService:
         queues = {i: asyncio.Queue() for i in range(len(tasks))}
         done_flags = {i: False for i in range(len(tasks))}
         
-        async def consume_stream(idx: int, stream: AsyncGenerator[str, None]):
+        async def consume_stream(idx: int, stream: AsyncGenerator[str, None], model_name: str):
+            normal_exit = False
             try:
                 async for event in stream:
                     await queues[idx].put(event)
+                normal_exit = True
             except Exception as e:
-                logger.error(f"流式响应异常: {e}", exc_info=True)
+                logger.error(f"流式响应异常 模型={model_name}: {e}", exc_info=True)
                 error_vo = StreamChunkVO(
+                    model_name=model_name,
                     error=str(e),
                     has_error=True,
                     done=True
                 )
                 await queues[idx].put(f"data: {error_vo.model_dump_json(by_alias=True, exclude_none=True)}\n\n")
             finally:
+                if not normal_exit and not done_flags[idx]:
+                    error_vo = StreamChunkVO(
+                        model_name=model_name,
+                        error="响应超时或已取消",
+                        has_error=True,
+                        done=True
+                    )
+                    await queues[idx].put(f"data: {error_vo.model_dump_json(by_alias=True, exclude_none=True)}\n\n")
                 done_flags[idx] = True
                 await queues[idx].put(None)
         
+        model_list = model_names if len(model_names) >= len(tasks) else (model_names + [""] * (len(tasks) - len(model_names)))
         consumers = [
-            asyncio.create_task(consume_stream(i, task))
+            asyncio.create_task(consume_stream(i, task, model_list[i]))
             for i, task in enumerate(tasks)
         ]
+        merge_deadline = time.time() + 130
         
         while not all(done_flags.values()):
+            if time.time() > merge_deadline:
+                logger.warning("⚠️ 并排对比总时长超时(130秒)，取消未完成的模型")
+                for i in range(len(consumers)):
+                    if not done_flags[i]:
+                        consumers[i].cancel()
+                await asyncio.gather(*consumers, return_exceptions=True)
+                for i in range(len(queues)):
+                    try:
+                        while True:
+                            event = await asyncio.wait_for(queues[i].get(), timeout=1.0)
+                            if event is None:
+                                break
+                            yield event
+                    except asyncio.TimeoutError:
+                        break
+                break
             for idx, queue in queues.items():
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=0.01)
@@ -552,7 +709,7 @@ class ConversationService:
                 except asyncio.TimeoutError:
                     continue
         
-        await asyncio.gather(*consumers)
+        await asyncio.gather(*consumers, return_exceptions=True)
     
     async def _save_user_message(
         self,
@@ -703,15 +860,23 @@ class ConversationService:
                 ConversationMessage.is_delete == 0
             )
         )
-        
+
+        if variant_index is not None:
+            query = query.where(
+                or_(
+                    ConversationMessage.variant_index == variant_index,
+                    ConversationMessage.variant_index.is_(None)
+                )
+            )
+
         if exclude_message_index is not None:
             query = query.where(ConversationMessage.message_index < exclude_message_index)
-        
+
         query = query.order_by(ConversationMessage.message_index.asc())
-        
+
         result = await db.execute(query)
         messages = result.scalars().all()
-        
+
         logger.info(f"📚 加载历史消息: 会话ID={conversation_id}, variantIndex={variant_index}, 数量={len(messages)}")
         
         return list(messages)
