@@ -94,6 +94,10 @@ func main() {
 	sceneService := service.NewSceneService(sceneRepo, scenePromptRepo, config.DB)
 	sceneHandler := handler.NewSceneHandler(sceneService, userService)
 
+	promptTemplateRepo := repository.NewPromptTemplateRepository(config.DB)
+	promptTemplateService := service.NewPromptTemplateService(promptTemplateRepo)
+	promptTemplateHandler := handler.NewPromptTemplateHandler(promptTemplateService)
+
 	testTaskRepo := repository.NewTestTaskRepository(config.DB)
 	testResultRepo := repository.NewTestResultRepository(config.DB)
 	userModelUsageService := service.NewUserModelUsageService(userModelUsageRepo)
@@ -108,6 +112,8 @@ func main() {
 	openRouterClient := openrouter.NewClient(config.AppConfig.OpenRouter.APIKey, config.AppConfig.OpenRouter.BaseURL)
 
 	aiScoringService := service.NewAIScoringService(openRouterClient, modelRepo, userModelUsageService)
+	promptOptimizationService := service.NewPromptOptimizationService(openRouterClient, userModelUsageService)
+	promptOptimizationHandler := handler.NewPromptOptimizationHandler(promptOptimizationService)
 
 	stompHandler := handler.NewStompHandler(logger.Log)
 	progressService.SetStompHandler(stompHandler)
@@ -188,6 +194,21 @@ func main() {
 			scene.POST("/prompt/add", middleware.AuthMiddleware(), sceneHandler.AddScenePrompt)
 			scene.POST("/prompt/update", middleware.AuthMiddleware(), sceneHandler.UpdateScenePrompt)
 			scene.POST("/prompt/delete", middleware.AuthMiddleware(), sceneHandler.DeleteScenePrompt)
+		}
+
+		promptTemplate := api.Group("/prompt/template")
+		{
+			promptTemplate.GET("/list", middleware.AuthMiddleware(), promptTemplateHandler.ListTemplates)
+			promptTemplate.GET("/get", middleware.AuthMiddleware(), promptTemplateHandler.GetTemplate)
+			promptTemplate.POST("/create", middleware.AuthMiddleware(), promptTemplateHandler.CreateTemplate)
+			promptTemplate.POST("/update", middleware.AuthMiddleware(), promptTemplateHandler.UpdateTemplate)
+			promptTemplate.POST("/delete", middleware.AuthMiddleware(), promptTemplateHandler.DeleteTemplate)
+			promptTemplate.POST("/increment-usage", promptTemplateHandler.IncrementUsage)
+		}
+
+		promptOptimization := api.Group("/prompt/optimization")
+		{
+			promptOptimization.POST("/analyze", middleware.AuthMiddleware(), promptOptimizationHandler.OptimizePrompt)
 		}
 
 		report := api.Group("/report")
