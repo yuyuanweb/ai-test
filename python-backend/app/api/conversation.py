@@ -13,6 +13,8 @@ from app.schemas.conversation import (
     ChatRequest,
     SideBySideRequest,
     PromptLabRequest,
+    CodeModeRequest,
+    CodeModePromptLabRequest,
     DeleteConversationRequest,
     ConversationVO,
     ConversationQueryRequest,
@@ -116,6 +118,54 @@ async def prompt_lab_stream(
     )
 
 
+@router.post("/code-mode/stream", summary="代码模式(流式)")
+async def code_mode_stream(
+    request_data: CodeModeRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Code Mode 代码模式（流式响应）
+    """
+    login_user = await UserService.get_login_user(db, http_request)
+
+    conversation_service = ConversationService(db)
+
+    return StreamingResponse(
+        conversation_service.code_mode_stream(request_data, login_user.id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@router.post("/code-mode/prompt-lab/stream", summary="代码模式提示词实验(流式)")
+async def code_mode_prompt_lab_stream(
+    request_data: CodeModePromptLabRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Code Mode 提示词实验（流式响应）
+    """
+    login_user = await UserService.get_login_user(db, http_request)
+
+    conversation_service = ConversationService(db)
+
+    return StreamingResponse(
+        conversation_service.code_mode_prompt_lab_stream(request_data, login_user.id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
 @router.get("/get", response_model=BaseResponse[ConversationVO], summary="获取对话详情")
 async def get_conversation(
     conversationId: str,
@@ -161,6 +211,7 @@ async def list_conversations(
     pageNum: int = 1,
     pageSize: int = 50,
     conversation_type: str = None,
+    codePreviewEnabled: int = None,
     http_request: Request = None,
     db: AsyncSession = Depends(get_db)
 ):
@@ -168,13 +219,18 @@ async def list_conversations(
     分页查询对话列表
     """
     login_user = await UserService.get_login_user(db, http_request)
-    
+
+    code_preview_enabled = None
+    if codePreviewEnabled is not None:
+        code_preview_enabled = codePreviewEnabled == 1
+
     conversation_service = ConversationService(db)
     conversations, total = await conversation_service.list_conversations(
         user_id=login_user.id,
         page_num=pageNum,
         page_size=pageSize,
-        conversation_type=conversation_type
+        conversation_type=conversation_type,
+        code_preview_enabled=code_preview_enabled
     )
     
     return BaseResponse(
