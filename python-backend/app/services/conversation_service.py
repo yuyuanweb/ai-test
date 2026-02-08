@@ -24,10 +24,13 @@ from app.schemas.conversation import (
     CreateConversationRequest,
     SideBySideRequest,
     PromptLabRequest,
+    CodeModeRequest,
+    CodeModePromptLabRequest,
     StreamChunkVO,
     ConversationVO,
     ConversationMessageVO
 )
+from app.utils.code_extractor import extract_code_blocks
 from app.core.errors import BusinessException, ErrorCode
 from app.core.config import get_settings
 from app.utils.cost_calculator import CostCalculator
@@ -36,6 +39,34 @@ settings = get_settings()
 
 MIN_PROMPT_VARIANTS_COUNT = 2
 MAX_PROMPT_VARIANTS_COUNT = 5
+MIN_MODELS_COUNT = 1
+MAX_MODELS_COUNT = 8
+
+CODE_MODE_SYSTEM_PROMPT = """
+你是一个专业的前端开发专家。用户会向你描述想要创建的网站或应用，你需要生成完整的HTML代码。
+
+代码要求：
+1. 生成完整的HTML网页代码（包含HTML、CSS和JavaScript）
+2. 将HTML、CSS和JavaScript都写在同一个HTML文件中
+3. CSS写在<style>标签内，JavaScript写在<script>标签内
+4. 代码要完整可运行，可以直接在浏览器中打开
+5. 使用现代化的CSS样式，界面要美观、专业
+6. 确保代码有良好的注释
+
+回复格式：
+- 你可以先简要说明设计思路或实现要点
+- 然后使用Markdown代码块输出完整的HTML代码
+- 代码块格式：
+```html
+<!DOCTYPE html>
+<html>
+...
+</html>
+```
+- 代码后可以补充使用说明或功能说明
+
+注意：虽然可以添加文字说明，但核心重点是生成可运行的HTML代码。
+"""
 
 
 class ConversationService:
@@ -288,6 +319,152 @@ class ConversationService:
         async for event in self._merge_streams(tasks, model_names):
             yield event
 
+    async def code_mode_stream(
+        self,
+        request: CodeModeRequest,
+        user_id: int
+    ) -> AsyncGenerator[str, None]:
+        """
+        Code Mode 代码模式（SSE 流式响应）
+        """
+        self._validate_code_mode_request(request)
+
+        conversation_id = request.conversation_id
+        if not conversation_id or not conversation_id.strip():
+            conversation_id = str(uuid.uuid4())
+            conversation = Conversation(
+                id=conversation_id,
+                user_id=user_id,
+                title=self._generate_title(request.prompt),
+                conversation_type="side_by_side",
+                models=json.dumps(request.models),
+                code_preview_enabled=1,
+                is_anonymous=0,
+                total_tokens=0,
+                total_cost=Decimal('0'),
+                is_delete=0
+            )
+            self.db.add(conversation)
+            await self.db.commit()
+
+        user_message_index = await self._save_user_message(
+            conversation_id,
+            user_id,
+            request.prompt,
+            request.image_urls
+        )
+        assistant_message_index = user_message_index + 1
+
+        tasks = []
+        for model_name in request.models:
+            task = self._stream_single_model(
+                conversation_id,
+                user_id,
+                model_name,
+                request.prompt,
+                assistant_message_index,
+                None,
+                request.image_urls,
+                request.web_search_enabled or False,
+                CODE_MODE_SYSTEM_PROMPT
+            )
+            tasks.append(task)
+
+        async for event in self._merge_streams(tasks, request.models):
+            yield event
+
+    async def code_mode_prompt_lab_stream(
+        self,
+        request: CodeModePromptLabRequest,
+        user_id: int
+    ) -> AsyncGenerator[str, None]:
+        """
+        Code Mode 提示词实验（SSE 流式响应）
+        """
+        self._validate_code_mode_prompt_lab_request(request)
+
+        conversation_id = request.conversation_id
+        if not conversation_id:
+            conversation_id = str(uuid.uuid4())
+            conversation = Conversation(
+                id=conversation_id,
+                user_id=user_id,
+                title=self._generate_title(request.prompt_variants[0]),
+                conversation_type="prompt_lab",
+                models=json.dumps([request.model]),
+                code_preview_enabled=1,
+                is_anonymous=0,
+                total_tokens=0,
+                total_cost=Decimal('0'),
+                is_delete=0
+            )
+            self.db.add(conversation)
+            await self.db.commit()
+
+        user_message_index = await self._get_next_message_index(conversation_id)
+        assistant_message_index = user_message_index + 1
+
+        for i, prompt_variant in enumerate(request.prompt_variants):
+            image_urls = None
+            if request.variant_image_urls and i < len(request.variant_image_urls):
+                image_urls = request.variant_image_urls[i]
+
+            await self._save_prompt_lab_user_message(
+                conversation_id,
+                user_id,
+                user_message_index,
+                i,
+                prompt_variant,
+                image_urls
+            )
+
+        tasks = []
+        for i, prompt_variant in enumerate(request.prompt_variants):
+            image_urls = None
+            if request.variant_image_urls and i < len(request.variant_image_urls):
+                image_urls = request.variant_image_urls[i]
+
+            task = self._stream_single_model(
+                conversation_id,
+                user_id,
+                request.model,
+                prompt_variant,
+                assistant_message_index,
+                i,
+                image_urls,
+                request.web_search_enabled or False,
+                CODE_MODE_SYSTEM_PROMPT
+            )
+            tasks.append(task)
+
+        model_names = [request.model] * len(request.prompt_variants)
+        async for event in self._merge_streams(tasks, model_names):
+            yield event
+
+    def _validate_code_mode_request(self, request: CodeModeRequest):
+        """校验 Code Mode 请求参数"""
+        if not request.models or len(request.models) == 0:
+            raise BusinessException(ErrorCode.PARAMS_ERROR, "模型列表不能为空")
+        if len(request.models) < MIN_MODELS_COUNT or len(request.models) > MAX_MODELS_COUNT:
+            raise BusinessException(
+                ErrorCode.PARAMS_ERROR,
+                f"模型数量必须在{MIN_MODELS_COUNT}-{MAX_MODELS_COUNT}个之间"
+            )
+        if not request.prompt or not request.prompt.strip():
+            raise BusinessException(ErrorCode.PARAMS_ERROR, "提示词不能为空")
+
+    def _validate_code_mode_prompt_lab_request(self, request: CodeModePromptLabRequest):
+        """校验 Code Mode 提示词实验请求参数"""
+        if not request.model or not request.model.strip():
+            raise BusinessException(ErrorCode.PARAMS_ERROR, "模型不能为空")
+        if not request.prompt_variants or len(request.prompt_variants) == 0:
+            raise BusinessException(ErrorCode.PARAMS_ERROR, "提示词变体列表不能为空")
+        if len(request.prompt_variants) < MIN_PROMPT_VARIANTS_COUNT or len(request.prompt_variants) > MAX_PROMPT_VARIANTS_COUNT:
+            raise BusinessException(
+                ErrorCode.PARAMS_ERROR,
+                f"提示词变体数量必须在{MIN_PROMPT_VARIANTS_COUNT}-{MAX_PROMPT_VARIANTS_COUNT}个之间"
+            )
+
     def _validate_prompt_lab_request(self, request: PromptLabRequest):
         """校验 Prompt Lab 请求参数"""
         if not request.model or not request.model.strip():
@@ -347,11 +524,12 @@ class ConversationService:
         message_index: int,
         variant_index: Optional[int],
         image_urls: Optional[List[str]],
-        web_search_enabled: bool
+        web_search_enabled: bool,
+        system_prompt: Optional[str] = None
     ) -> AsyncGenerator[str, None]:
         """
         调用单个模型并流式返回结果
-        
+
         Args:
             conversation_id: 对话ID
             user_id: 用户ID
@@ -361,7 +539,8 @@ class ConversationService:
             variant_index: 变体索引（Prompt Lab模式）
             image_urls: 图片URL列表
             web_search_enabled: 是否启用联网搜索
-            
+            system_prompt: 系统提示词（代码模式使用）
+
         Yields:
             SSE事件
         """
@@ -453,7 +632,10 @@ class ConversationService:
                     logger.info(f"📝 替换当前用户prompt（使用传入的imageUrls）: prompt={prompt}, imageUrls={image_urls}")
                 else:
                     logger.info(f"⏭️ 跳过添加当前prompt（历史消息中已包含，且无新图片）: prompt={prompt}")
-            
+
+            if system_prompt and system_prompt.strip():
+                messages = [{"role": "system", "content": system_prompt.strip()}] + messages
+
             logger.info(f"🚀 开始流式调用模型: {model_name}, 上下文消息数: {len(messages)}, 当前prompt: {prompt}")
             
             stream = await self.openai_client.chat.completions.create(
@@ -574,6 +756,14 @@ class ConversationService:
                     model_info.output_price
                 )
             
+            code_blocks_list = []
+            if accumulated_content and accumulated_content.strip():
+                code_blocks_list = extract_code_blocks(accumulated_content)
+                if code_blocks_list:
+                    logger.info("从响应中提取到 {} 个代码块", len(code_blocks_list))
+
+            code_blocks_json = json.dumps(code_blocks_list, ensure_ascii=False) if code_blocks_list else None
+
             async with AsyncSessionLocal() as independent_db:
                 await self._save_assistant_message(
                     independent_db,
@@ -587,7 +777,8 @@ class ConversationService:
                     output_tokens,
                     cost,
                     response_time_ms,
-                    accumulated_reasoning if accumulated_reasoning else None
+                    accumulated_reasoning if accumulated_reasoning else None,
+                    code_blocks_json
                 )
                 
                 await self._update_conversation_stats(
@@ -612,7 +803,9 @@ class ConversationService:
                 message_index=message_index,
                 reasoning=accumulated_reasoning if accumulated_reasoning else None,
                 has_reasoning=bool(accumulated_reasoning),
-                thinking_time=thinking_time
+                thinking_time=thinking_time,
+                code_blocks=code_blocks_list if code_blocks_list else None,
+                has_code_blocks=bool(code_blocks_list)
             )
             
             done_message = f"data: {done_vo.model_dump_json(by_alias=True, exclude_none=True)}\n\n"
@@ -771,7 +964,8 @@ class ConversationService:
         output_tokens: int,
         cost: Decimal,
         response_time_ms: int,
-        reasoning: Optional[str] = None
+        reasoning: Optional[str] = None,
+        code_blocks: Optional[str] = None
     ):
         """
         保存AI助手消息
@@ -786,6 +980,7 @@ class ConversationService:
             variant_index=variant_index,
             content=content,
             reasoning=reasoning,
+            code_blocks=code_blocks,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cost=cost,
@@ -951,7 +1146,8 @@ class ConversationService:
         user_id: int,
         page_num: int = 1,
         page_size: int = 50,
-        conversation_type: Optional[str] = None
+        conversation_type: Optional[str] = None,
+        code_preview_enabled: Optional[bool] = None
     ) -> tuple[List[dict], int]:
         """
         分页查询对话列表
@@ -962,9 +1158,14 @@ class ConversationService:
                 Conversation.is_delete == 0
             )
         )
-        
+
         if conversation_type:
             query = query.where(Conversation.conversation_type == conversation_type)
+
+        if code_preview_enabled is not None:
+            query = query.where(
+                Conversation.code_preview_enabled == (1 if code_preview_enabled else 0)
+            )
         
         query = query.order_by(Conversation.update_time.desc())
         

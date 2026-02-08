@@ -51,6 +51,34 @@ class PromptLabRequest(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class CodeModeRequest(BaseModel):
+    """Code Mode 代码模式请求"""
+    models: List[str] = Field(..., description="模型列表(1-8个)")
+    prompt: str = Field(..., description="需求描述")
+    image_urls: Optional[List[str]] = Field(None, description="图片URL列表（可选）", alias="imageUrls")
+    conversation_id: Optional[str] = Field(None, description="对话ID，多轮对话时传入", alias="conversationId")
+    stream: Optional[bool] = Field(True, description="是否使用流式响应")
+    web_search_enabled: Optional[bool] = Field(False, description="是否启用联网搜索", alias="webSearchEnabled")
+
+    model_config = {"populate_by_name": True}
+
+
+class CodeModePromptLabRequest(BaseModel):
+    """Code Mode 提示词实验请求（代码模式下的多提示词对比）"""
+    model: str = Field(..., description="模型名称")
+    prompt_variants: List[str] = Field(..., description="提示词变体列表(2-5个)", alias="promptVariants")
+    variant_image_urls: Optional[List[List[str]]] = Field(
+        None,
+        description="变体图片URL列表（可选，与promptVariants一一对应）",
+        alias="variantImageUrls"
+    )
+    conversation_id: Optional[str] = Field(None, description="对话ID，多轮对话时传入", alias="conversationId")
+    stream: Optional[bool] = Field(True, description="是否使用流式响应")
+    web_search_enabled: Optional[bool] = Field(False, description="是否启用联网搜索", alias="webSearchEnabled")
+
+    model_config = {"populate_by_name": True}
+
+
 class BattleRequest(BaseModel):
     """Battle 匿名模型对比请求"""
     conversation_id: Optional[str] = Field(None, description="对话ID（可选）")
