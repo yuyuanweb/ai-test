@@ -102,6 +102,9 @@ func main() {
 	batchTestService := service.NewBatchTestService(testTaskRepo, testResultRepo, sceneRepo, scenePromptRepo, rabbitMQClient, config.DB)
 	batchTestHandler := handler.NewBatchTestHandler(batchTestService, userService)
 
+	reportService := service.NewReportService(testTaskRepo, testResultRepo)
+	reportHandler := handler.NewReportHandler(reportService)
+
 	openRouterClient := openrouter.NewClient(config.AppConfig.OpenRouter.APIKey, config.AppConfig.OpenRouter.BaseURL)
 	
 	// 创建 STOMP + SockJS 处理器
@@ -184,6 +187,11 @@ func main() {
 			scene.POST("/prompt/add", middleware.AuthMiddleware(), sceneHandler.AddScenePrompt)
 			scene.POST("/prompt/update", middleware.AuthMiddleware(), sceneHandler.UpdateScenePrompt)
 			scene.POST("/prompt/delete", middleware.AuthMiddleware(), sceneHandler.DeleteScenePrompt)
+		}
+
+		report := api.Group("/report")
+		{
+			report.GET("/generate", middleware.AuthMiddleware(), reportHandler.GenerateReport)
 		}
 
 		batchTest := api.Group("/batch-test")
