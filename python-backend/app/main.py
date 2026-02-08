@@ -11,10 +11,11 @@ from contextlib import asynccontextmanager
 from app.core.config import get_settings
 from app.core.errors import BusinessException
 from app.core.logging_config import logger
-from app.api import user, health, test
+from app.api import user, health, test, conversation, model, rating
 from app.middleware.session_middleware import RedisSessionMiddleware
 from app.db.redis_session import RedisSessionBackend
 from app.db.redis import get_redis_client
+from app.jobs.sync_model_job import start_scheduler
 
 settings = get_settings()
 
@@ -31,7 +32,14 @@ async def lifespan(app: FastAPI):
     app.state.redis_client = redis_client
     app.state.session_backend = session_backend
     
+    scheduler = start_scheduler()
+    app.state.scheduler = scheduler
+    
     yield
+    
+    if hasattr(app.state, 'scheduler') and app.state.scheduler:
+        app.state.scheduler.shutdown()
+        logger.info("定时任务调度器已关闭")
     
     if redis_client:
         await redis_client.close()
@@ -77,6 +85,9 @@ async def business_exception_handler(request: Request, exc: BusinessException):
 app.include_router(health.router, prefix="/api")
 app.include_router(user.router, prefix="/api")
 app.include_router(test.router, prefix="/api")
+app.include_router(conversation.router, prefix="/api")
+app.include_router(model.router, prefix="/api")
+app.include_router(rating.router, prefix="/api")
 
 
 if __name__ == "__main__":
