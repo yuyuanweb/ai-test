@@ -40,3 +40,12 @@ rabbitmq:
   port: 5672
   username: guest
   password: guest
+
+# 腾讯云 COS（与 Java application.yml 的 tencent.cos 对齐，用于图片上传）
+tencent:
+  cos:
+    accessKey: "AKIDulEamqmiXFl493oNjv0tZ3VrIbiT1MTN"
+    secretKey: "kLk0403u692jDUaUCj5EAsNkxgDZjfQG"
+    region: ap-guangzhou
+    bucket: yupi-1300582479
+    host: ""   # 留空则自动使用 https://{bucket}.cos.{region}.myqcloud.com

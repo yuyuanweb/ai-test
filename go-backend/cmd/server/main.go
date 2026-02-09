@@ -22,6 +22,7 @@ import (
 	"ai-test-go/internal/repository"
 	"ai-test-go/internal/service"
 	"ai-test-go/internal/worker"
+	"ai-test-go/pkg/cos"
 	"ai-test-go/pkg/logger"
 	"ai-test-go/pkg/openrouter"
 	"ai-test-go/pkg/rabbitmq"
@@ -111,6 +112,28 @@ func main() {
 
 	openRouterClient := openrouter.NewClient(config.AppConfig.OpenRouter.APIKey, config.AppConfig.OpenRouter.BaseURL)
 
+	var cosClient *cos.Client
+	if config.AppConfig.Tencent.Cos.Bucket != "" && config.AppConfig.Tencent.Cos.Region != "" {
+		c, err := cos.NewClient(&cos.Config{
+			AccessKey: config.AppConfig.Tencent.Cos.AccessKey,
+			SecretKey: config.AppConfig.Tencent.Cos.SecretKey,
+			Region:    config.AppConfig.Tencent.Cos.Region,
+			Bucket:    config.AppConfig.Tencent.Cos.Bucket,
+			Host:      config.AppConfig.Tencent.Cos.Host,
+		})
+		if err != nil {
+			logger.Log.Warnf("腾讯云 COS 初始化失败: %v (图片上传功能不可用)", err)
+		} else {
+			cosClient = c
+			logger.Log.Info("腾讯云 COS 初始化成功")
+		}
+	}
+	fileService := service.NewFileService(cosClient)
+	uploadHandler := handler.NewUploadHandler(fileService)
+
+	imageService := service.NewImageService(modelRepo, conversationRepo, conversationMessageRepo, fileService, modelService, userModelUsageService)
+	imageHandler := handler.NewImageHandler(imageService)
+
 	aiScoringService := service.NewAIScoringService(openRouterClient, modelRepo, userModelUsageService)
 	promptOptimizationService := service.NewPromptOptimizationService(openRouterClient, userModelUsageService)
 	promptOptimizationHandler := handler.NewPromptOptimizationHandler(promptOptimizationService)
@@ -176,6 +199,16 @@ func main() {
 			rating.GET("/get", middleware.AuthMiddleware(), ratingHandler.GetRating)
 			rating.GET("/list", middleware.AuthMiddleware(), ratingHandler.ListRatingsByConversation)
 			rating.DELETE("/delete", middleware.AuthMiddleware(), ratingHandler.DeleteRating)
+		}
+
+		upload := api.Group("/upload")
+		{
+			upload.POST("/image", middleware.AuthMiddleware(), uploadHandler.UploadImage)
+		}
+
+		image := api.Group("/image")
+		{
+			image.POST("/generate/stream", middleware.AuthMiddleware(), imageHandler.GenerateImageStream)
 		}
 
 		modelGroup := api.Group("/model")

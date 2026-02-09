@@ -25,4 +25,5 @@ type StreamChunkVO struct {
 	ThinkingTime   int              `json:"thinkingTime,omitempty"`
 	CodeBlocks     []dto.CodeBlock  `json:"codeBlocks,omitempty"`
 	HasCodeBlocks  bool             `json:"hasCodeBlocks,omitempty"`
+	ToolsUsed      string           `json:"toolsUsed,omitempty"`
 }

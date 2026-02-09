@@ -4,6 +4,7 @@ package repository
 
 import (
 	"ai-test-go/internal/model"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -60,5 +61,16 @@ func (r *ConversationRepository) UpdateStats(id string, totalTokens int, totalCo
 		Updates(map[string]interface{}{
 			"totalTokens": totalTokens,
 			"totalCost":   totalCost,
+		}).Error
+}
+
+// IncrementStats 累加会话的 token 和费用（用于图片生成等）
+func (r *ConversationRepository) IncrementStats(id string, addTokens int, addCost float64) error {
+	return r.db.Model(&model.Conversation{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"totalTokens": gorm.Expr("totalTokens + ?", addTokens),
+			"totalCost":   gorm.Expr("totalCost + ?", addCost),
+			"updateTime":  time.Now(),
 		}).Error
 }

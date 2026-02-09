@@ -59,9 +59,12 @@ type StreamData struct {
 
 type StreamCallback func(data StreamData) error
 
+const onlineSuffix = ":online"
+
 type Message struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role      string   `json:"role"`
+	Content   string   `json:"content"`
+	ImageUrls []string `json:"-"`
 }
 
 type StreamChunk struct{
@@ -82,27 +85,31 @@ type StreamDelta struct {
 }
 
 func (a *LangChainAdapter) CallStream(ctx context.Context, prompt, model string, callback StreamCallback) error {
-	return a.CallStreamWithHistory(ctx, nil, prompt, model, callback)
+	return a.CallStreamWithHistory(ctx, nil, prompt, nil, model, false, callback)
 }
 
-func (a *LangChainAdapter) CallStreamWithHistory(ctx context.Context, historyMessages []Message, prompt, model string, callback StreamCallback) error {
-	return a.CallStreamWithSystemPrompt(ctx, historyMessages, prompt, "", model, callback)
+func (a *LangChainAdapter) CallStreamWithHistory(ctx context.Context, historyMessages []Message, prompt string, imageUrls []string, model string, webSearchEnabled bool, callback StreamCallback) error {
+	return a.CallStreamWithSystemPrompt(ctx, historyMessages, prompt, imageUrls, "", model, webSearchEnabled, callback)
 }
 
-func (a *LangChainAdapter) CallStreamWithSystemPrompt(ctx context.Context, historyMessages []Message, prompt, systemPrompt, model string, callback StreamCallback) error {
-	messages := make([]Message, 0, len(historyMessages)+2)
-	
-	// 如果有系统提示词，添加到消息列表开头
+func (a *LangChainAdapter) CallStreamWithSystemPrompt(ctx context.Context, historyMessages []Message, prompt string, imageUrls []string, systemPrompt, model string, webSearchEnabled bool, callback StreamCallback) error {
+	effectiveModel := applyOnlineSuffix(model, webSearchEnabled)
+
+	messagesForAPI := make([]map[string]interface{}, 0, len(historyMessages)+3)
 	if systemPrompt != "" {
-		messages = append(messages, Message{Role: "system", Content: systemPrompt})
+		messagesForAPI = append(messagesForAPI, map[string]interface{}{
+			"role":    "system",
+			"content": systemPrompt,
+		})
 	}
-	
-	messages = append(messages, historyMessages...)
-	messages = append(messages, Message{Role: "user", Content: prompt})
+	for _, msg := range historyMessages {
+		messagesForAPI = append(messagesForAPI, buildMessageContent(msg.Role, msg.Content, msg.ImageUrls))
+	}
+	messagesForAPI = append(messagesForAPI, buildMessageContent("user", prompt, imageUrls))
 
 	reqBody := map[string]interface{}{
-		"model":       model,
-		"messages":    messages,
+		"model":       effectiveModel,
+		"messages":    messagesForAPI,
 		"temperature": 0.7,
 		"max_tokens":  4096,
 		"stream":      true,
@@ -173,4 +180,48 @@ func (a *LangChainAdapter) CallStreamWithSystemPrompt(ctx context.Context, histo
 	}
 
 	return nil
+}
+
+func applyOnlineSuffix(model string, webSearchEnabled bool) string {
+	if model == "" || !webSearchEnabled {
+		return model
+	}
+	if strings.Contains(model, onlineSuffix) {
+		return model
+	}
+	return model + onlineSuffix
+}
+
+func buildMessageContent(role, text string, imageUrls []string) map[string]interface{} {
+	content := text
+	hasImages := len(imageUrls) > 0
+	for _, u := range imageUrls {
+		if u != "" {
+			hasImages = true
+			break
+		}
+	}
+	if role != "user" || !hasImages {
+		return map[string]interface{}{
+			"role":    role,
+			"content": content,
+		}
+	}
+	parts := []map[string]interface{}{
+		{"type": "text", "text": content},
+	}
+	for _, u := range imageUrls {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			continue
+		}
+		parts = append(parts, map[string]interface{}{
+			"type": "image_url",
+			"image_url": map[string]string{"url": u},
+		})
+	}
+	return map[string]interface{}{
+		"role":    role,
+		"content": parts,
+	}
 }

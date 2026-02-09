@@ -8,9 +8,9 @@ import (
 	"ai-test-go/internal/model/vo"
 	"ai-test-go/internal/service"
 	"ai-test-go/pkg/common"
+	"ai-test-go/pkg/logger"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 
@@ -45,7 +45,7 @@ func (h *ConversationHandler) CreateConversation(c *gin.Context) {
 
 	var req dto.CreateConversationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("参数绑定失败: %v", err)
+		logger.Log.Infof("参数绑定失败: %v", err)
 		c.JSON(http.StatusOK, common.Error(common.PARAMS_ERROR, "参数错误"))
 		return
 	}
@@ -55,7 +55,7 @@ func (h *ConversationHandler) CreateConversation(c *gin.Context) {
 		if bizErr, ok := err.(*common.BusinessException); ok {
 			c.JSON(http.StatusOK, common.Error(bizErr.Code, bizErr.Message))
 		} else {
-			log.Printf("创建对话失败: %v", err)
+			logger.Log.Infof("创建对话失败: %v", err)
 			c.JSON(http.StatusOK, common.Error(common.SYSTEM_ERROR, "系统内部异常"))
 		}
 		return
@@ -82,12 +82,12 @@ func (h *ConversationHandler) ChatStream(c *gin.Context) {
 
 	var req dto.ChatRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("参数绑定失败: %v", err)
+		logger.Log.Warnf("参数绑定失败: %v", err)
 		c.JSON(http.StatusOK, common.Error(common.PARAMS_ERROR, "参数错误"))
 		return
 	}
 
-	log.Printf("Chat stream request: user=%d, model=%s", userID, req.Model)
+	logger.Log.Infof("Chat stream request: user=%d, model=%s", userID, req.Model)
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -109,7 +109,7 @@ func (h *ConversationHandler) ChatStream(c *gin.Context) {
 	})
 
 	if err != nil {
-		log.Printf("对话流式调用失败: %v", err)
+		logger.Log.Warnf("对话流式调用失败: %v", err)
 		if bizErr, ok := err.(*common.BusinessException); ok {
 			middleware.WriteSseError(c, bizErr.Code, bizErr.Message)
 		} else {
@@ -136,12 +136,12 @@ func (h *ConversationHandler) SideBySideStream(c *gin.Context) {
 
 	var req dto.SideBySideRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("参数绑定失败: %v", err)
+		logger.Log.Warnf("参数绑定失败: %v", err)
 		c.JSON(http.StatusOK, common.Error(common.PARAMS_ERROR, "参数错误"))
 		return
 	}
 
-	log.Printf("Side-by-Side stream request: user=%d, models=%v", userID, req.Models)
+	logger.Log.Infof("Side-by-Side stream request: user=%d, models=%v, webSearchEnabled=%v", userID, req.Models, req.WebSearchEnabled)
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -163,7 +163,7 @@ func (h *ConversationHandler) SideBySideStream(c *gin.Context) {
 	})
 
 	if err != nil {
-		log.Printf("Side-by-Side流式调用失败: %v", err)
+		logger.Log.Warnf("Side-by-Side流式调用失败: %v", err)
 		if bizErr, ok := err.(*common.BusinessException); ok {
 			middleware.WriteSseError(c, bizErr.Code, bizErr.Message)
 		} else {
@@ -190,12 +190,12 @@ func (h *ConversationHandler) PromptLabStream(c *gin.Context) {
 
 	var req dto.PromptLabRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("参数绑定失败: %v", err)
+		logger.Log.Infof("参数绑定失败: %v", err)
 		c.JSON(http.StatusOK, common.Error(common.PARAMS_ERROR, "参数错误"))
 		return
 	}
 
-	log.Printf("Prompt Lab stream request: user=%d, model=%s, variants=%d", userID, req.Model, len(req.PromptVariants))
+	logger.Log.Infof("Prompt Lab stream request: user=%d, model=%s, variants=%d", userID, req.Model, len(req.PromptVariants))
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -217,7 +217,7 @@ func (h *ConversationHandler) PromptLabStream(c *gin.Context) {
 	})
 
 	if err != nil {
-		log.Printf("Prompt Lab流式调用失败: %v", err)
+		logger.Log.Infof("Prompt Lab流式调用失败: %v", err)
 		if bizErr, ok := err.(*common.BusinessException); ok {
 			middleware.WriteSseError(c, bizErr.Code, bizErr.Message)
 		} else {
@@ -244,12 +244,12 @@ func (h *ConversationHandler) BattleStream(c *gin.Context) {
 
 	var req dto.BattleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("参数绑定失败: %v", err)
+		logger.Log.Infof("参数绑定失败: %v", err)
 		c.JSON(http.StatusOK, common.Error(common.PARAMS_ERROR, "参数错误"))
 		return
 	}
 
-	log.Printf("Battle stream request: user=%d, models=%v", userID, req.Models)
+	logger.Log.Infof("Battle stream request: user=%d, models=%v, webSearchEnabled=%v", userID, req.Models, req.WebSearchEnabled)
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -270,7 +270,7 @@ func (h *ConversationHandler) BattleStream(c *gin.Context) {
 	})
 
 	if err != nil {
-		log.Printf("Battle流式调用失败: %v", err)
+		logger.Log.Infof("Battle流式调用失败: %v", err)
 		if bizErr, ok := err.(*common.BusinessException); ok {
 			middleware.WriteSseError(c, bizErr.Code, bizErr.Message)
 		} else {
@@ -306,7 +306,7 @@ func (h *ConversationHandler) GetConversation(c *gin.Context) {
 		if bizErr, ok := err.(*common.BusinessException); ok {
 			c.JSON(http.StatusOK, common.Error(bizErr.Code, bizErr.Message))
 		} else {
-			log.Printf("获取对话失败: %v", err)
+			logger.Log.Infof("获取对话失败: %v", err)
 			c.JSON(http.StatusOK, common.Error(common.SYSTEM_ERROR, "系统内部异常"))
 		}
 		return
@@ -348,7 +348,7 @@ func (h *ConversationHandler) ListConversations(c *gin.Context) {
 		if bizErr, ok := err.(*common.BusinessException); ok {
 			c.JSON(http.StatusOK, common.Error(bizErr.Code, bizErr.Message))
 		} else {
-			log.Printf("查询对话列表失败: %v", err)
+			logger.Log.Infof("查询对话列表失败: %v", err)
 			c.JSON(http.StatusOK, common.Error(common.SYSTEM_ERROR, "系统内部异常"))
 		}
 		return
@@ -391,7 +391,7 @@ func (h *ConversationHandler) GetConversationMessages(c *gin.Context) {
 		if bizErr, ok := err.(*common.BusinessException); ok {
 			c.JSON(http.StatusOK, common.Error(bizErr.Code, bizErr.Message))
 		} else {
-			log.Printf("获取对话消息失败: %v", err)
+			logger.Log.Infof("获取对话消息失败: %v", err)
 			c.JSON(http.StatusOK, common.Error(common.SYSTEM_ERROR, "系统内部异常"))
 		}
 		return
@@ -427,7 +427,7 @@ func (h *ConversationHandler) GetBattleModelMapping(c *gin.Context) {
 		if bizErr, ok := err.(*common.BusinessException); ok {
 			c.JSON(http.StatusOK, common.Error(bizErr.Code, bizErr.Message))
 		} else {
-			log.Printf("获取Battle映射失败: %v", err)
+			logger.Log.Infof("获取Battle映射失败: %v", err)
 			c.JSON(http.StatusOK, common.Error(common.SYSTEM_ERROR, "系统内部异常"))
 		}
 		return
@@ -454,7 +454,7 @@ func (h *ConversationHandler) DeleteConversation(c *gin.Context) {
 
 	var req dto.DeleteConversationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("参数绑定失败: %v", err)
+		logger.Log.Infof("参数绑定失败: %v", err)
 		c.JSON(http.StatusOK, common.Error(common.PARAMS_ERROR, "参数错误"))
 		return
 	}
@@ -463,7 +463,7 @@ func (h *ConversationHandler) DeleteConversation(c *gin.Context) {
 		if bizErr, ok := err.(*common.BusinessException); ok {
 			c.JSON(http.StatusOK, common.Error(bizErr.Code, bizErr.Message))
 		} else {
-			log.Printf("删除对话失败: %v", err)
+			logger.Log.Infof("删除对话失败: %v", err)
 			c.JSON(http.StatusOK, common.Error(common.SYSTEM_ERROR, "系统内部异常"))
 		}
 		return
@@ -490,7 +490,7 @@ func (h *ConversationHandler) CodeModeStream(c *gin.Context) {
 
 	var req dto.CodeModeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("参数绑定失败: %v", err)
+		logger.Log.Infof("参数绑定失败: %v", err)
 		c.JSON(http.StatusOK, common.Error(common.PARAMS_ERROR, "参数错误"))
 		return
 	}
@@ -502,7 +502,7 @@ func (h *ConversationHandler) CodeModeStream(c *gin.Context) {
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		log.Println("不支持流式响应")
+		logger.Log.Info("不支持流式响应")
 		c.JSON(http.StatusOK, common.Error(common.SYSTEM_ERROR, "不支持流式响应"))
 		return
 	}
@@ -515,7 +515,7 @@ func (h *ConversationHandler) CodeModeStream(c *gin.Context) {
 	})
 
 	if err != nil {
-		log.Printf("代码模式流式调用失败: %v", err)
+		logger.Log.Infof("代码模式流式调用失败: %v", err)
 		if bizErr, ok := err.(*common.BusinessException); ok {
 			middleware.WriteSseError(c, bizErr.Code, bizErr.Message)
 		} else {
@@ -542,7 +542,7 @@ func (h *ConversationHandler) CodeModePromptLabStream(c *gin.Context) {
 
 	var req dto.CodeModePromptLabRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		log.Printf("参数绑定失败: %v", err)
+		logger.Log.Infof("参数绑定失败: %v", err)
 		c.JSON(http.StatusOK, common.Error(common.PARAMS_ERROR, "参数错误"))
 		return
 	}
@@ -554,7 +554,7 @@ func (h *ConversationHandler) CodeModePromptLabStream(c *gin.Context) {
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		log.Println("不支持流式响应")
+		logger.Log.Info("不支持流式响应")
 		c.JSON(http.StatusOK, common.Error(common.SYSTEM_ERROR, "不支持流式响应"))
 		return
 	}
@@ -567,7 +567,7 @@ func (h *ConversationHandler) CodeModePromptLabStream(c *gin.Context) {
 	})
 
 	if err != nil {
-		log.Printf("代码模式提示词实验室流式调用失败: %v", err)
+		logger.Log.Infof("代码模式提示词实验室流式调用失败: %v", err)
 		if bizErr, ok := err.(*common.BusinessException); ok {
 			middleware.WriteSseError(c, bizErr.Code, bizErr.Message)
 		} else {
