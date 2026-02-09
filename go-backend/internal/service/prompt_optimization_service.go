@@ -3,11 +3,13 @@
 package service
 
 import (
+	"ai-test-go/internal/guardrail"
 	"ai-test-go/internal/model/dto"
 	"ai-test-go/internal/model/vo"
 	"ai-test-go/pkg/common"
 	"ai-test-go/pkg/logger"
 	"ai-test-go/pkg/openrouter"
+	"ai-test-go/pkg/utils"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -66,6 +68,9 @@ func (s *PromptOptimizationService) OptimizePrompt(originalPrompt, aiResponse, e
 	if strings.TrimSpace(originalPrompt) == "" {
 		return nil, common.NewBusinessException(common.PARAMS_ERROR, "原始提示词不能为空")
 	}
+	if err := guardrail.Validate(originalPrompt); err != nil {
+		return nil, err
+	}
 
 	model := defaultOptimizationModel
 	if strings.TrimSpace(evaluationModel) != "" {
@@ -89,7 +94,9 @@ func (s *PromptOptimizationService) OptimizePrompt(originalPrompt, aiResponse, e
 		Messages:    []openrouter.Message{{Role: "user", Content: analysisPrompt}},
 	}
 
-	resp, err := s.openRouterClient.Chat(req)
+	resp, err := utils.RunWithRetry(func() (*openrouter.ChatResponse, error) {
+		return s.openRouterClient.Chat(req)
+	})
 	if err != nil {
 		logger.Log.Errorf("提示词优化AI调用失败: %v", err)
 		return nil, common.NewBusinessException(common.SYSTEM_ERROR, "提示词优化分析失败: "+err.Error())

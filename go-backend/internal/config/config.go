@@ -4,6 +4,7 @@ package config
 
 import (
 	"log"
+	"strings"
 
 	"github.com/spf13/viper"
 )
@@ -85,6 +86,9 @@ func LoadConfig() error {
 	if err := viper.ReadInConfig(); err != nil {
 		return err
 	}
+
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv()
 
 	AppConfig = &Config{}
 	if err := viper.Unmarshal(AppConfig); err != nil {
