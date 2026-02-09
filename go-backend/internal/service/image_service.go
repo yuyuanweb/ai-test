@@ -81,6 +81,7 @@ type ImageService struct {
 	fileService             *FileService
 	modelService            *ModelService
 	userModelUsageService   *UserModelUsageService
+	budgetService           *BudgetService
 	apiKey                  string
 	baseURL                 string
 }
@@ -93,6 +94,7 @@ func NewImageService(
 	fileService *FileService,
 	modelService *ModelService,
 	userModelUsageService *UserModelUsageService,
+	budgetService *BudgetService,
 ) *ImageService {
 	baseURL := strings.TrimSuffix(config.AppConfig.OpenRouter.BaseURL, "/")
 	return &ImageService{
@@ -102,6 +104,7 @@ func NewImageService(
 		fileService:             fileService,
 		modelService:            modelService,
 		userModelUsageService:   userModelUsageService,
+		budgetService:           budgetService,
 		apiKey:                  config.AppConfig.OpenRouter.APIKey,
 		baseURL:                 baseURL,
 	}
@@ -232,6 +235,9 @@ func (s *ImageService) GenerateImages(ctx context.Context, req *dto.GenerateImag
 	if totalTokens > 0 {
 		_ = s.modelService.UpdateModelUsage(modelID, int64(totalTokens), cost)
 		_ = s.userModelUsageService.UpdateUserModelUsage(userID, modelID, int64(totalTokens), cost)
+	}
+	if cost > 0 && s.budgetService != nil {
+		s.budgetService.AddCost(userID, cost)
 	}
 
 	conversationId := strings.TrimSpace(req.ConversationId)

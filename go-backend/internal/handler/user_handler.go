@@ -16,12 +16,14 @@ import (
 )
 
 type UserHandler struct {
-	userService *service.UserService
+	userService   *service.UserService
+	budgetService *service.BudgetService
 }
 
-func NewUserHandler(userService *service.UserService) *UserHandler {
+func NewUserHandler(userService *service.UserService, budgetService *service.BudgetService) *UserHandler {
 	return &UserHandler{
-		userService: userService,
+		userService:   userService,
+		budgetService: budgetService,
 	}
 }
 
@@ -347,6 +349,42 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	c.JSON(http.StatusOK, common.Success(true))
 }
 
+// UpdateMyInfo 更新当前登录用户信息
+// @Summary      更新当前用户信息
+// @Description  登录用户编辑自己的昵称、头像、简介、预算设置等
+// @Tags         用户管理
+// @Accept       json
+// @Produce      json
+// @Param        request  body      dto.UserUpdateRequest  true  "更新请求（不含id、userRole）"
+// @Success      200      {object}  common.BaseResponse{data=bool}
+// @Router       /user/update/my [post]
+func (h *UserHandler) UpdateMyInfo(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusOK, common.ErrorWithDefaultMsg(common.NOT_LOGIN_ERROR))
+		return
+	}
+
+	var req dto.UserUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("参数绑定失败: %v", err)
+		c.JSON(http.StatusOK, common.Error(common.PARAMS_ERROR, "参数错误"))
+		return
+	}
+
+	if err := h.userService.UpdateMyInfo(userID.(int64), &req); err != nil {
+		if bizErr, ok := err.(*common.BusinessException); ok {
+			c.JSON(http.StatusOK, common.Error(bizErr.Code, bizErr.Message))
+		} else {
+			log.Printf("更新当前用户信息失败: %v", err)
+			c.JSON(http.StatusOK, common.Error(common.SYSTEM_ERROR, "系统内部异常"))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, common.Success(true))
+}
+
 // ListUserByPage 分页获取用户列表（仅管理员）
 // @Summary      分页获取用户列表
 // @Description  管理员分页获取用户列表
@@ -415,4 +453,59 @@ func (h *UserHandler) GetUserStatistics(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, common.Success(statistics))
+}
+
+// GetBudgetStatus 获取预算状态
+// @Summary      获取预算状态
+// @Description  今日/本月消耗、预算限额与预警状态
+// @Tags         用户管理
+// @Accept       json
+// @Produce      json
+// @Success      200  {object}  common.BaseResponse{data=vo.BudgetStatusVO}
+// @Router       /user/budget/status [get]
+func (h *UserHandler) GetBudgetStatus(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusOK, common.ErrorWithDefaultMsg(common.NOT_LOGIN_ERROR))
+		return
+	}
+
+	status := h.budgetService.CheckBudget(userID.(int64))
+	c.JSON(http.StatusOK, common.Success(status))
+}
+
+// UpdateBudget 更新预算设置
+// @Summary      更新预算设置
+// @Description  更新日预算、月预算、预警阈值
+// @Tags         用户管理
+// @Accept       json
+// @Produce      json
+// @Param        request  body      dto.BudgetUpdateRequest  true  "预算更新请求"
+// @Success      200      {object}  common.BaseResponse{data=bool}
+// @Router       /user/budget/update [post]
+func (h *UserHandler) UpdateBudget(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusOK, common.ErrorWithDefaultMsg(common.NOT_LOGIN_ERROR))
+		return
+	}
+
+	var req dto.BudgetUpdateRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("参数绑定失败: %v", err)
+		c.JSON(http.StatusOK, common.Error(common.PARAMS_ERROR, "参数错误"))
+		return
+	}
+
+	if err := h.userService.UpdateBudget(userID.(int64), &req); err != nil {
+		if bizErr, ok := err.(*common.BusinessException); ok {
+			c.JSON(http.StatusOK, common.Error(bizErr.Code, bizErr.Message))
+		} else {
+			log.Printf("更新预算失败: %v", err)
+			c.JSON(http.StatusOK, common.Error(common.SYSTEM_ERROR, "系统内部异常"))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, common.Success(true))
 }

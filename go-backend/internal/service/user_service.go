@@ -20,6 +20,7 @@ type UserService struct {
 	conversationMessageRepo *repository.ConversationMessageRepository
 	userModelUsageRepo      *repository.UserModelUsageRepository
 	modelRepo               *repository.ModelRepository
+	budgetService           *BudgetService
 }
 
 func NewUserService(
@@ -27,12 +28,14 @@ func NewUserService(
 	conversationMessageRepo *repository.ConversationMessageRepository,
 	userModelUsageRepo *repository.UserModelUsageRepository,
 	modelRepo *repository.ModelRepository,
+	budgetService *BudgetService,
 ) *UserService {
 	return &UserService{
 		userRepo:                userRepo,
 		conversationMessageRepo: conversationMessageRepo,
 		userModelUsageRepo:      userModelUsageRepo,
 		modelRepo:               modelRepo,
+		budgetService:           budgetService,
 	}
 }
 
@@ -252,6 +255,46 @@ func (s *UserService) UpdateUser(req *dto.UserUpdateRequest) error {
 	return nil
 }
 
+func (s *UserService) UpdateMyInfo(userID int64, req *dto.UserUpdateRequest) error {
+	if req == nil {
+		return common.NewBusinessException(common.PARAMS_ERROR, "参数为空")
+	}
+
+	updates := make(map[string]interface{})
+	if req.UserName != "" {
+		updates["userName"] = req.UserName
+	}
+	if req.UserAvatar != "" {
+		updates["userAvatar"] = req.UserAvatar
+	}
+	if req.UserProfile != "" {
+		updates["userProfile"] = req.UserProfile
+	}
+	if req.DailyBudget != nil {
+		updates["dailyBudget"] = *req.DailyBudget
+	}
+	if req.MonthlyBudget != nil {
+		updates["monthlyBudget"] = *req.MonthlyBudget
+	}
+	if req.BudgetAlertThreshold != nil {
+		threshold := *req.BudgetAlertThreshold
+		if threshold < 0 || threshold > 100 {
+			return common.NewBusinessException(common.PARAMS_ERROR, "预算预警阈值需在0-100之间")
+		}
+		updates["budgetAlertThreshold"] = threshold
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	if err := s.userRepo.UpdateByID(userID, updates); err != nil {
+		return common.NewBusinessException(common.OPERATION_ERROR, "更新用户信息失败")
+	}
+
+	return nil
+}
+
 func (s *UserService) ListUserByPage(req *dto.UserQueryRequest) ([]*model.User, int64, error) {
 	if req == nil {
 		return nil, 0, common.NewBusinessException(common.PARAMS_ERROR, "参数错误")
@@ -316,15 +359,10 @@ func (s *UserService) GetUserStatistics(userID int64) (*vo.UserStatisticsVO, err
 		statistics.TotalCost = totalCost
 	}
 
-	todayCost, err := s.conversationMessageRepo.GetTodayCostByUserID(userID)
-	if err == nil {
-		statistics.TodayCost = todayCost
-	}
-
-	monthCost, err := s.conversationMessageRepo.GetMonthCostByUserID(userID)
-	if err == nil {
-		statistics.MonthCost = monthCost
-	}
+	todayCost := s.budgetService.GetTodayCost(userID)
+	monthCost := s.budgetService.GetMonthCost(userID)
+	statistics.TodayCost = todayCost
+	statistics.MonthCost = monthCost
 
 	user, err := s.userRepo.FindByID(userID)
 	if err == nil && user != nil {
@@ -344,4 +382,31 @@ func (s *UserService) GetUserStatistics(userID int64) (*vo.UserStatisticsVO, err
 	}
 
 	return statistics, nil
+}
+
+func (s *UserService) UpdateBudget(userID int64, req *dto.BudgetUpdateRequest) error {
+	if req == nil {
+		return common.NewBusinessException(common.PARAMS_ERROR, "参数为空")
+	}
+
+	updates := make(map[string]interface{})
+	if req.DailyBudget != nil {
+		updates["dailyBudget"] = *req.DailyBudget
+	}
+	if req.MonthlyBudget != nil {
+		updates["monthlyBudget"] = *req.MonthlyBudget
+	}
+	if req.BudgetAlertThreshold != nil {
+		threshold := *req.BudgetAlertThreshold
+		if threshold < 0 || threshold > 100 {
+			return common.NewBusinessException(common.PARAMS_ERROR, "预算预警阈值需在0-100之间")
+		}
+		updates["budgetAlertThreshold"] = threshold
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	return s.userRepo.UpdateByID(userID, updates)
 }

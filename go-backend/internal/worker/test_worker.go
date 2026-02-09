@@ -30,6 +30,7 @@ type TestWorker struct {
 	batchTestService      *service.BatchTestService
 	modelService          *service.ModelService
 	userModelUsageService *service.UserModelUsageService
+	budgetService         *service.BudgetService
 	progressService       *service.ProgressNotificationService
 	openRouterClient      *openrouter.Client
 	aiScoringService      service.AIScoringService
@@ -42,6 +43,7 @@ func NewTestWorker(
 	batchTestService *service.BatchTestService,
 	modelService *service.ModelService,
 	userModelUsageService *service.UserModelUsageService,
+	budgetService *service.BudgetService,
 	progressService *service.ProgressNotificationService,
 	openRouterClient *openrouter.Client,
 	aiScoringService service.AIScoringService,
@@ -53,6 +55,7 @@ func NewTestWorker(
 		batchTestService:      batchTestService,
 		modelService:          modelService,
 		userModelUsageService: userModelUsageService,
+		budgetService:         budgetService,
 		progressService:       progressService,
 		openRouterClient:      openRouterClient,
 		aiScoringService:      aiScoringService,
@@ -237,6 +240,9 @@ func (w *TestWorker) processSubTask(d amqp.Delivery) {
 
 	if subTask.UserID > 0 {
 		w.userModelUsageService.UpdateUserModelUsage(subTask.UserID, subTask.ModelName, totalTokens, cost)
+		if cost > 0 && w.budgetService != nil {
+			w.budgetService.AddCost(subTask.UserID, cost)
+		}
 	}
 
 	enableAiScoring := isEnableAiScoring(configMap)
