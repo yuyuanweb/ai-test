@@ -24,15 +24,21 @@ const (
 	TOKENS_PER_MILLION    = 1000000
 )
 
-type SyncModelJob struct {
-	modelRepo *repository.ModelRepository
-	cron      *cron.Cron
+type ModelPricingCacheEvictor interface {
+	EvictModelPricingCache(modelName string)
 }
 
-func NewSyncModelJob(modelRepo *repository.ModelRepository) *SyncModelJob {
+type SyncModelJob struct {
+	modelRepo   *repository.ModelRepository
+	cacheEvict  ModelPricingCacheEvictor
+	cron        *cron.Cron
+}
+
+func NewSyncModelJob(modelRepo *repository.ModelRepository, cacheEvict ModelPricingCacheEvictor) *SyncModelJob {
 	return &SyncModelJob{
-		modelRepo: modelRepo,
-		cron:      cron.New(),
+		modelRepo:  modelRepo,
+		cacheEvict: cacheEvict,
+		cron:       cron.New(),
 	}
 }
 
@@ -73,6 +79,9 @@ func (j *SyncModelJob) SyncModels() {
 			log.Printf("保存模型失败: %s, 错误: %v", openRouterModel.ID, err)
 			failCount++
 		} else {
+			if j.cacheEvict != nil {
+				j.cacheEvict.EvictModelPricingCache(openRouterModel.ID)
+			}
 			successCount++
 		}
 	}

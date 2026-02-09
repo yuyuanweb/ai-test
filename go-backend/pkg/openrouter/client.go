@@ -4,6 +4,7 @@ package openrouter
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -60,12 +61,16 @@ type Usage struct {
 }
 
 func (c *Client) Chat(req *ChatRequest) (*ChatResponse, error) {
+	return c.ChatWithContext(context.Background(), req)
+}
+
+func (c *Client) ChatWithContext(ctx context.Context, req *ChatRequest) (*ChatResponse, error) {
 	reqBody, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", c.BaseURL+"/chat/completions", bytes.NewBuffer(reqBody))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/chat/completions", bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}

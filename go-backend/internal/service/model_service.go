@@ -3,21 +3,29 @@
 package service
 
 import (
+	"ai-test-go/internal/constant"
 	"ai-test-go/internal/model"
 	"ai-test-go/internal/model/dto"
 	"ai-test-go/internal/model/vo"
 	"ai-test-go/internal/repository"
 	"ai-test-go/pkg/common"
+	"ai-test-go/pkg/logger"
+	"context"
 	"encoding/json"
+	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type ModelService struct {
-	modelRepo *repository.ModelRepository
+	modelRepo   *repository.ModelRepository
+	redisClient *redis.Client
 }
 
-func NewModelService(modelRepo *repository.ModelRepository) *ModelService {
+func NewModelService(modelRepo *repository.ModelRepository, redisClient *redis.Client) *ModelService {
 	return &ModelService{
-		modelRepo: modelRepo,
+		modelRepo:   modelRepo,
+		redisClient: redisClient,
 	}
 }
 
@@ -82,14 +90,65 @@ func (s *ModelService) convertToVO(m *model.Model, userID *int64) vo.ModelVO {
 }
 
 func (s *ModelService) GetModelPricing(modelName string) *vo.ModelPricingVO {
+	if modelName == "" {
+		return nil
+	}
+
+	ctx := context.Background()
+
+	if s.redisClient != nil {
+		cacheKey := constant.ModelPricingKeyPrefix + modelName
+		cached, err := s.redisClient.Get(ctx, cacheKey).Result()
+		if err == nil {
+			var cachedPricing vo.ModelPricingVO
+			if json.Unmarshal([]byte(cached), &cachedPricing) == nil {
+				return &cachedPricing
+			}
+		}
+	}
+
 	m, err := s.modelRepo.FindByID(modelName)
 	if err != nil {
 		return nil
 	}
 
-	return &vo.ModelPricingVO{
-		InputPrice:  m.InputPrice,
-		OutputPrice: m.OutputPrice,
+	inputPrice := m.InputPrice
+	if inputPrice == 0 {
+		inputPrice = constant.DEFAULT_INPUT_PRICE_PER_MILLION
+	}
+	outputPrice := m.OutputPrice
+	if outputPrice == 0 {
+		outputPrice = constant.DEFAULT_OUTPUT_PRICE_PER_MILLION
+	}
+
+	result := &vo.ModelPricingVO{
+		InputPrice:  inputPrice,
+		OutputPrice: outputPrice,
+	}
+
+	if s.redisClient != nil {
+		cacheKey := constant.ModelPricingKeyPrefix + modelName
+		if data, err := json.Marshal(result); err == nil {
+			ttl := time.Duration(constant.ModelPricingTTLHours) * time.Hour
+			if setErr := s.redisClient.Set(ctx, cacheKey, data, ttl).Err(); setErr != nil {
+				logger.Log.Warnf("写入模型价格缓存失败: modelName=%s, err=%v", modelName, setErr)
+			}
+		}
+	}
+
+	return result
+}
+
+func (s *ModelService) EvictModelPricingCache(modelName string) {
+	if modelName == "" || s.redisClient == nil {
+		return
+	}
+	ctx := context.Background()
+	cacheKey := constant.ModelPricingKeyPrefix + modelName
+	if err := s.redisClient.Del(ctx, cacheKey).Err(); err != nil {
+		logger.Log.Warnf("清除模型价格缓存失败: modelName=%s, err=%v", modelName, err)
+	} else {
+		logger.Log.Debugf("已清除模型价格缓存: modelName=%s", modelName)
 	}
 }
 

@@ -5,6 +5,7 @@ package service
 import (
 	"ai-test-go/internal/config"
 	"ai-test-go/internal/constant"
+	"ai-test-go/internal/guardrail"
 	"ai-test-go/internal/model"
 	"ai-test-go/internal/model/dto"
 	"ai-test-go/internal/model/vo"
@@ -174,6 +175,9 @@ func (s *ConversationService) SideBySideStream(req *dto.SideBySideRequest, userI
 	if req.Prompt == "" {
 		return common.NewBusinessException(common.PARAMS_ERROR, "提示词不能为空")
 	}
+	if err := guardrail.Validate(req.Prompt); err != nil {
+		return err
+	}
 
 	conversationID := req.ConversationID
 	if conversationID == "" {
@@ -326,6 +330,11 @@ func (s *ConversationService) PromptLabStream(req *dto.PromptLabRequest, userID 
 	}
 	if len(req.PromptVariants) < constant.MIN_PROMPT_VARIANTS_COUNT || len(req.PromptVariants) > constant.MAX_PROMPT_VARIANTS_COUNT {
 		return common.NewBusinessException(common.PARAMS_ERROR, "提示词变体数量必须在2-5之间")
+	}
+	for _, v := range req.PromptVariants {
+		if err := guardrail.Validate(v); err != nil {
+			return err
+		}
 	}
 
 	conversationID := req.ConversationID
@@ -493,6 +502,9 @@ func (s *ConversationService) ChatStream(req *dto.ChatRequest, userID int64, onC
 	}
 	if req.Message == "" {
 		return common.NewBusinessException(common.PARAMS_ERROR, "消息内容不能为空")
+	}
+	if err := guardrail.Validate(req.Message); err != nil {
+		return err
 	}
 
 	conversationID := req.ConversationID
@@ -694,6 +706,9 @@ func (s *ConversationService) CodeModeStream(req *dto.CodeModeRequest, userID in
 	if req.Prompt == "" {
 		return common.NewBusinessException(common.PARAMS_ERROR, "需求描述不能为空")
 	}
+	if err := guardrail.Validate(req.Prompt); err != nil {
+		return err
+	}
 
 	conversationID := req.ConversationID
 	if conversationID == "" {
@@ -861,6 +876,11 @@ func (s *ConversationService) CodeModePromptLabStream(req *dto.CodeModePromptLab
 	}
 	if len(req.PromptVariants) < constant.MIN_PROMPT_VARIANTS_COUNT || len(req.PromptVariants) > constant.MAX_PROMPT_VARIANTS_COUNT {
 		return common.NewBusinessException(common.PARAMS_ERROR, "提示词变体数量必须在2-5之间")
+	}
+	for _, v := range req.PromptVariants {
+		if err := guardrail.Validate(v); err != nil {
+			return err
+		}
 	}
 
 	conversationID := req.ConversationID

@@ -81,9 +81,13 @@ func (r *ModelRepository) List(req *dto.ModelQueryRequest) ([]model.Model, int64
 
 	offset := (current - 1) * pageSize
 
-	db = db.Order("isChina DESC, recommended DESC, createTime DESC")
+	db = db.Select("id", "name", "description", "provider", "contextLength", "inputPrice", "outputPrice",
+		"recommended", "isChina", "supportsMultimodal", "supportsImageGen", "supportsToolCalling", "tags",
+		"totalTokens", "totalCost", "createTime", "updateTime", "isDelete").
+		Order("isChina DESC, recommended DESC, createTime DESC").
+		Offset(int(offset)).Limit(int(pageSize))
 
-	if err := db.Offset(int(offset)).Limit(int(pageSize)).Find(&models).Error; err != nil {
+	if err := db.Find(&models).Error; err != nil {
 		return nil, 0, err
 	}
 
@@ -93,6 +97,9 @@ func (r *ModelRepository) List(req *dto.ModelQueryRequest) ([]model.Model, int64
 func (r *ModelRepository) GetAll() ([]model.Model, error) {
 	var models []model.Model
 	err := r.db.Where("isDelete = 0").
+		Select("id", "name", "description", "provider", "contextLength", "inputPrice", "outputPrice",
+			"recommended", "isChina", "supportsMultimodal", "supportsImageGen", "supportsToolCalling", "tags",
+			"totalTokens", "totalCost", "createTime", "updateTime", "isDelete").
 		Order("isChina DESC, recommended DESC, createTime DESC").
 		Find(&models).Error
 	return models, err
