@@ -136,6 +136,13 @@ class BatchTestService:
             "timestamp": int(time.time() * 1000)
         })
 
+        MAX_CONCURRENT_SUBTASKS = 5
+        sem = asyncio.Semaphore(MAX_CONCURRENT_SUBTASKS)
+
+        async def run_subtask_with_semaphore(sub_task_data: dict) -> None:
+            async with sem:
+                await asyncio.to_thread(run_subtask_sync, sub_task_data)
+
         for model_name in models:
             for prompt in prompts:
                 sub_task_data = {
@@ -147,7 +154,7 @@ class BatchTestService:
                     "modelName": model_name,
                     "userId": user_id
                 }
-                asyncio.create_task(asyncio.to_thread(run_subtask_sync, sub_task_data))
+                asyncio.create_task(run_subtask_with_semaphore(sub_task_data))
 
         return task_id
 

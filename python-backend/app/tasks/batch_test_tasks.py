@@ -14,11 +14,14 @@ from openai import OpenAI
 
 from app.core.celery_app import celery_app
 from app.core.config import get_settings
+from app.db.redis import get_redis_client_sync
 from app.db.sync_session import get_sync_session
 from app.models.test_task import TestTask
 from app.models.test_result import TestResult
 from app.models.model import Model
 from app.utils.cost_calculator import CostCalculator
+from app.utils.model_pricing_cache import get_model_pricing_cached_sync
+from app.utils.prompt_guardrail import validate as validate_prompt
 
 settings = get_settings()
 DEFAULT_TEMPERATURE = 0.7
@@ -59,6 +62,8 @@ def _do_process_subtask(sub_task_data: dict) -> dict:
         if task.status in ("cancelled", "failed"):
             return {"skipped": True, "taskId": task_id, "status": task.status}
 
+        validate_prompt(prompt_content or "")
+
         config = {}
         if task.config:
             try:
@@ -83,11 +88,13 @@ def _do_process_subtask(sub_task_data: dict) -> dict:
             base_url="https://openrouter.ai/api/v1"
         )
 
+        SUBTASK_TIMEOUT_SECONDS = 30
         response = client.chat.completions.create(
             model=model_name,
             messages=[{"role": "user", "content": prompt_content}],
             temperature=float(temperature),
             max_tokens=max_tokens,
+            timeout=SUBTASK_TIMEOUT_SECONDS,
             extra_headers={
                 "HTTP-Referer": "https://codefather.cn",
                 "X-Title": "AI Evaluation Platform"
@@ -108,17 +115,30 @@ def _do_process_subtask(sub_task_data: dict) -> dict:
             input_tokens = response.usage.prompt_tokens or 0
             output_tokens = response.usage.completion_tokens or 0
 
-        model_result = session.execute(
-            select(Model).where(Model.id == model_name, Model.is_delete == 0)
-        )
-        model_row = model_result.scalar_one_or_none()
-        if model_row and model_row.input_price is not None and model_row.output_price is not None:
+        def _fetch_pricing():
+            model_result = session.execute(
+                select(Model).where(Model.id == model_name, Model.is_delete == 0)
+            )
+            model_row = model_result.scalar_one_or_none()
+            if model_row:
+                return (model_row.input_price, model_row.output_price)
+            return (None, None)
+
+        input_price, output_price = (None, None)
+        try:
+            redis_client = get_redis_client_sync()
+            if redis_client:
+                input_price, output_price = get_model_pricing_cached_sync(
+                    redis_client, model_name, _fetch_pricing
+                )
+        except Exception:
+            pass
+        if input_price is None and output_price is None:
+            input_price, output_price = _fetch_pricing()
+
+        if input_price is not None and output_price is not None:
             cost = CostCalculator.calculate_cost(
-                model_name,
-                input_tokens,
-                output_tokens,
-                model_row.input_price,
-                model_row.output_price
+                model_name, input_tokens, output_tokens, input_price, output_price
             )
         else:
             cost = (Decimal(str(input_tokens)) / Decimal(str(TOKENS_PER_MILLION))) * DEFAULT_INPUT_PRICE + \
@@ -170,17 +190,25 @@ def _do_process_subtask(sub_task_data: dict) -> dict:
         )
         task_after = task_result2.scalar_one_or_none()
         if task_after:
-            percentage = int((task_after.completed_subtasks / task_after.total_subtasks * 100)) if task_after.total_subtasks else 0
-            publish_progress(task_id, {
-                "taskId": task_id,
-                "percentage": percentage,
-                "completedSubtasks": task_after.completed_subtasks,
-                "totalSubtasks": task_after.total_subtasks,
-                "currentModel": model_name,
-                "currentPrompt": prompt_title,
-                "status": task_after.status,
-                "timestamp": int(time.time() * 1000)
-            })
+            completed = task_after.completed_subtasks
+            total = task_after.total_subtasks
+            should_push = (
+                completed >= total or
+                completed % 10 == 0 or
+                task_after.status in ("completed", "failed")
+            )
+            if should_push:
+                percentage = int((completed / total * 100)) if total else 0
+                publish_progress(task_id, {
+                    "taskId": task_id,
+                    "percentage": percentage,
+                    "completedSubtasks": completed,
+                    "totalSubtasks": total,
+                    "currentModel": model_name,
+                    "currentPrompt": prompt_title,
+                    "status": task_after.status,
+                    "timestamp": int(time.time() * 1000)
+                })
 
         return {
             "resultId": result_id,

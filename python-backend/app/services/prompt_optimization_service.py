@@ -10,6 +10,7 @@ from openai import AsyncOpenAI
 
 from app.core.config import get_settings
 from app.core.errors import BusinessException, ErrorCode
+from app.utils.ai_retry_helper import run_with_retry_async
 from app.core.logging_config import logger
 from app.schemas.prompt import PromptOptimizationVO
 
@@ -141,12 +142,14 @@ class PromptOptimizationService:
         )
 
         try:
-            resp = await self._client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": analysis_prompt}],
-                temperature=0.3,
-                max_tokens=2048,
-                extra_headers=self._extra_headers,
+            resp = await run_with_retry_async(
+                lambda: self._client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": analysis_prompt}],
+                    temperature=0.3,
+                    max_tokens=2048,
+                    extra_headers=self._extra_headers,
+                )
             )
             content = ""
             if resp.choices and len(resp.choices) > 0:
