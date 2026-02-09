@@ -5,6 +5,8 @@ package constant
 const (
 	MIN_MODELS_COUNT                 = 1
 	MAX_MODELS_COUNT                 = 8
+	MIN_BATTLE_MODELS_COUNT          = 2
+	MAX_BATTLE_MODELS_COUNT          = 2
 	MIN_PROMPT_VARIANTS_COUNT        = 2
 	MAX_PROMPT_VARIANTS_COUNT        = 5
 	MAX_TITLE_LENGTH                 = 30
@@ -12,6 +14,13 @@ const (
 	DEFAULT_INPUT_PRICE_PER_MILLION  = 0.15
 	DEFAULT_OUTPUT_PRICE_PER_MILLION = 0.60
 	TOKENS_PER_MILLION               = 1000000.0
+)
+
+const (
+	ConversationTypeSideBySide = "side_by_side"
+	ConversationTypePromptLab  = "prompt_lab"
+	ConversationTypeCodeMode  = "code_mode"
+	ConversationTypeBattle    = "battle"
 )
 
 const CODE_MODE_SYSTEM_PROMPT = `你是一个专业的前端开发专家。用户会向你描述想要创建的网站或应用，你需要生成完整的HTML代码。

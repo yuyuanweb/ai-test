@@ -36,11 +36,13 @@ type PromptLabRequest struct {
 }
 
 type BattleRequest struct {
-	Models           []string `json:"models" binding:"required"`
-	Prompt           string   `json:"prompt" binding:"required"`
-	ConversationID   string   `json:"conversationId"`
-	ImageUrls        []string `json:"imageUrls"`
-	WebSearchEnabled bool     `json:"webSearchEnabled"`
+	Models             []string `json:"models"`
+	Prompt             string   `json:"prompt" binding:"required"`
+	ConversationID     string   `json:"conversationId"`
+	ImageUrls          []string `json:"imageUrls"`
+	Stream             bool     `json:"stream"`
+	WebSearchEnabled   bool     `json:"webSearchEnabled"`
+	CodePreviewEnabled bool     `json:"codePreviewEnabled"`
 }
 
 type CodeModeRequest struct {

@@ -16,6 +16,8 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"math/rand"
+	"strings"
 	"sync"
 	"time"
 )
@@ -1055,4 +1057,302 @@ func (s *ConversationService) CodeModePromptLabStream(req *dto.CodeModePromptLab
 
 	wg.Wait()
 	return nil
+}
+
+const (
+	battleAnonymousLabelA = "模型A"
+	battleAnonymousLabelB = "模型B"
+)
+
+func (s *ConversationService) BattleStream(req *dto.BattleRequest, userID int64, onChunk func(chunk vo.StreamChunkVO) error) error {
+	if strings.TrimSpace(req.Prompt) == "" {
+		return common.NewBusinessException(common.PARAMS_ERROR, "提示词不能为空")
+	}
+	if err := guardrail.Validate(req.Prompt); err != nil {
+		return err
+	}
+
+	hasImages := len(req.ImageUrls) > 0
+	var models []string
+	var modelMapping map[string]string
+	var conversationID string
+	var codePreviewEnabled bool
+
+	if req.ConversationID != "" {
+		existing, err := s.conversationRepo.FindByID(req.ConversationID, userID)
+		if err != nil {
+			return common.NewBusinessException(common.NOT_FOUND_ERROR, "对话不存在")
+		}
+		conversationID = existing.ID
+		codePreviewEnabled = existing.CodePreviewEnabled
+		if existing.ModelMapping == nil || strings.TrimSpace(*existing.ModelMapping) == "" {
+			log.Printf("Battle模式：对话 %s 的 modelMapping 为空", conversationID)
+			return common.NewBusinessException(common.SYSTEM_ERROR, "对话的模型映射不存在")
+		}
+		if err := json.Unmarshal([]byte(*existing.ModelMapping), &modelMapping); err != nil {
+			return common.NewBusinessException(common.SYSTEM_ERROR, "解析模型映射失败")
+		}
+		modelA := modelMapping[battleAnonymousLabelA]
+		modelB := modelMapping[battleAnonymousLabelB]
+		if modelA == "" || modelB == "" {
+			return common.NewBusinessException(common.SYSTEM_ERROR, "对话的模型映射不完整")
+		}
+		models = []string{modelA, modelB}
+		log.Printf("Battle模式：使用已有对话的模型映射，conversationId=%s", conversationID)
+	} else {
+		if len(req.Models) == 0 {
+			allModels, err := s.modelRepo.GetAll()
+			if err != nil || len(allModels) < constant.MIN_BATTLE_MODELS_COUNT {
+				return common.NewBusinessException(common.PARAMS_ERROR, "可用模型数量不足，无法进行Battle对比")
+			}
+			if hasImages {
+				var multimodal []model.Model
+				for i := range allModels {
+					if allModels[i].SupportsMultimodal == 1 {
+						multimodal = append(multimodal, allModels[i])
+					}
+				}
+				if len(multimodal) < constant.MIN_BATTLE_MODELS_COUNT {
+					return common.NewBusinessException(common.PARAMS_ERROR, "支持多模态的模型数量不足，无法进行图片对比")
+				}
+				allModels = multimodal
+			}
+			var chinaModels []model.Model
+			for i := range allModels {
+				if allModels[i].IsChina == 1 {
+					chinaModels = append(chinaModels, allModels[i])
+				}
+			}
+			if len(chinaModels) >= constant.MIN_BATTLE_MODELS_COUNT {
+				rand.Shuffle(len(chinaModels), func(i, j int) { chinaModels[i], chinaModels[j] = chinaModels[j], chinaModels[i] })
+				models = []string{chinaModels[0].ID, chinaModels[1].ID}
+			} else if len(chinaModels) == 1 {
+				rand.Shuffle(len(allModels), func(i, j int) { allModels[i], allModels[j] = allModels[j], allModels[i] })
+				for _, m := range allModels {
+					if m.ID != chinaModels[0].ID {
+						models = []string{chinaModels[0].ID, m.ID}
+						break
+					}
+				}
+				if len(models) < 2 {
+					return common.NewBusinessException(common.PARAMS_ERROR, "可用模型数量不足，无法进行Battle对比")
+				}
+			} else {
+				rand.Shuffle(len(allModels), func(i, j int) { allModels[i], allModels[j] = allModels[j], allModels[i] })
+				models = []string{allModels[0].ID, allModels[1].ID}
+			}
+			log.Printf("Battle模式：随机选择模型: %v", models)
+		} else if len(req.Models) < constant.MIN_BATTLE_MODELS_COUNT {
+			return common.NewBusinessException(common.PARAMS_ERROR, "Battle模式至少需要2个模型")
+		} else {
+			models = []string{req.Models[0], req.Models[1]}
+			log.Printf("Battle模式：使用前2个模型: %v", models)
+		}
+		modelMapping = map[string]string{battleAnonymousLabelA: models[0], battleAnonymousLabelB: models[1]}
+		conversationID = utils.GenerateUUID()
+		codePreviewEnabled = req.CodePreviewEnabled
+		modelsJSON, _ := json.Marshal(models)
+		mappingJSON, _ := json.Marshal(modelMapping)
+		mappingStr := string(mappingJSON)
+		conv := &model.Conversation{
+			ID:                 conversationID,
+			UserID:             userID,
+			Title:              s.generateTitle(req.Prompt),
+			ConversationType:   constant.ConversationTypeBattle,
+			CodePreviewEnabled: codePreviewEnabled,
+			IsAnonymous:        true,
+			ModelMapping:       &mappingStr,
+			Models:             string(modelsJSON),
+			TotalTokens:        0,
+			TotalCost:          0,
+			CreateTime:         time.Now(),
+			UpdateTime:         time.Now(),
+			IsDelete:           0,
+		}
+		if err := s.conversationRepo.Create(conv); err != nil {
+			return common.NewBusinessException(common.OPERATION_ERROR, "创建对话失败")
+		}
+		log.Printf("Battle模式：创建新对话，conversationId=%s, codePreviewEnabled=%v", conversationID, codePreviewEnabled)
+	}
+
+	messageIndex, err := s.conversationMessageRepo.GetNextMessageIndex(conversationID)
+	if err != nil {
+		return common.NewBusinessException(common.SYSTEM_ERROR, "获取消息索引失败")
+	}
+	userMessage := &model.ConversationMessage{
+		ID:             utils.GenerateUUID(),
+		ConversationID: conversationID,
+		UserID:         userID,
+		MessageIndex:   messageIndex,
+		Role:           "user",
+		Content:        req.Prompt,
+		CreateTime:     time.Now(),
+		UpdateTime:     time.Now(),
+		IsDelete:       0,
+	}
+	if err := s.conversationMessageRepo.Create(userMessage); err != nil {
+		log.Printf("保存user消息失败: %v", err)
+		return common.NewBusinessException(common.SYSTEM_ERROR, "保存消息失败")
+	}
+	assistantMessageIndex := messageIndex + 1
+
+	ch := make(chan vo.StreamChunkVO, 64)
+	var wg sync.WaitGroup
+	var wgConsumer sync.WaitGroup
+	wgConsumer.Add(1)
+	go func() {
+		defer wgConsumer.Done()
+		for c := range ch {
+			if err := onChunk(c); err != nil {
+				log.Printf("Battle stream onChunk error: %v", err)
+			}
+		}
+	}()
+
+	ctx := context.Background()
+	anonymousLabels := []string{battleAnonymousLabelA, battleAnonymousLabelB}
+	for i := range models {
+		realModelId := models[i]
+		anonLabel := anonymousLabels[i]
+		wg.Add(1)
+		go func(realModelIdForDB, anonLabelForStream string) {
+			defer wg.Done()
+			historyMessages, _ := s.getHistoryMessagesForContext(conversationID, messageIndex, nil)
+			langchainMessages := make([]llm.Message, 0)
+			for _, msg := range historyMessages {
+				if msg.Role == "user" {
+					langchainMessages = append(langchainMessages, llm.Message{Role: "user", Content: msg.Content})
+				} else if msg.Role == "assistant" && msg.ModelName == realModelIdForDB {
+					langchainMessages = append(langchainMessages, llm.Message{Role: "assistant", Content: msg.Content})
+				}
+			}
+			startTime := time.Now()
+			fullContent := ""
+			fullReasoning := ""
+			outputTokens := 0
+			var streamErr error
+			if codePreviewEnabled {
+				streamErr = s.langchainAdapter.CallStreamWithSystemPrompt(ctx, langchainMessages, req.Prompt, constant.CODE_MODE_SYSTEM_PROMPT, realModelIdForDB, func(data llm.StreamData) error {
+					fullContent += data.Content
+					fullReasoning += data.Reasoning
+					outputTokens += (len(data.Content) + len(data.Reasoning)) / 4
+					chunk := vo.StreamChunkVO{
+						ConversationID: conversationID,
+						ModelName:      anonLabelForStream,
+						Content:        data.Content,
+						FullContent:    fullContent,
+						Reasoning:      fullReasoning,
+						HasReasoning:   fullReasoning != "",
+						OutputTokens:   outputTokens,
+						ElapsedMs:      time.Since(startTime).Milliseconds(),
+						Done:           false,
+						HasError:       false,
+					}
+					ch <- chunk
+					return nil
+				})
+			} else {
+				streamErr = s.langchainAdapter.CallStreamWithHistory(ctx, langchainMessages, req.Prompt, realModelIdForDB, func(data llm.StreamData) error {
+					fullContent += data.Content
+					fullReasoning += data.Reasoning
+					outputTokens += (len(data.Content) + len(data.Reasoning)) / 4
+					chunk := vo.StreamChunkVO{
+						ConversationID: conversationID,
+						ModelName:      anonLabelForStream,
+						Content:        data.Content,
+						FullContent:    fullContent,
+						Reasoning:      fullReasoning,
+						HasReasoning:   fullReasoning != "",
+						OutputTokens:   outputTokens,
+						ElapsedMs:      time.Since(startTime).Milliseconds(),
+						Done:           false,
+						HasError:       false,
+					}
+					ch <- chunk
+					return nil
+				})
+			}
+			responseTimeMs := int(time.Since(startTime).Milliseconds())
+			if streamErr != nil {
+				log.Printf("Battle模式 模型 %s 调用失败: %v", anonLabelForStream, streamErr)
+				ch <- vo.StreamChunkVO{
+					ConversationID: conversationID,
+					ModelName:      anonLabelForStream,
+					Error:          streamErr.Error(),
+					HasError:       true,
+					Done:           true,
+				}
+				return
+			}
+			thinkingTime := 0
+			if fullReasoning != "" {
+				thinkingTime = max(1, min(len(fullReasoning)/200, 60))
+			}
+			inputTokens := len(req.Prompt) / 4
+			totalTokens := inputTokens + outputTokens
+			cost := s.calculateCostByModel(realModelIdForDB, inputTokens, outputTokens)
+			codeBlocks := utils.ExtractCodeBlocks(fullContent)
+			hasCodeBlocks := len(codeBlocks) > 0
+			doneChunk := vo.StreamChunkVO{
+				ConversationID: conversationID,
+				ModelName:      anonLabelForStream,
+				FullContent:    fullContent,
+				Reasoning:      fullReasoning,
+				HasReasoning:   fullReasoning != "",
+				ThinkingTime:   thinkingTime,
+				InputTokens:    inputTokens,
+				OutputTokens:   outputTokens,
+				TotalTokens:    totalTokens,
+				Cost:           cost,
+				ResponseTimeMs: responseTimeMs,
+				CodeBlocks:     codeBlocks,
+				HasCodeBlocks:  hasCodeBlocks,
+				Done:           true,
+				HasError:       false,
+			}
+			ch <- doneChunk
+			assistantMessage := s.createAssistantMessage(conversationID, userID, assistantMessageIndex, realModelIdForDB, fullContent, responseTimeMs, inputTokens, outputTokens)
+			if fullReasoning != "" {
+				assistantMessage.Reasoning = fullReasoning
+			}
+			if hasCodeBlocks {
+				codeBlocksData, _ := json.Marshal(codeBlocks)
+				codeBlocksStr := string(codeBlocksData)
+				assistantMessage.CodeBlocks = &codeBlocksStr
+			}
+			if err := s.conversationMessageRepo.Create(assistantMessage); err != nil {
+				log.Printf("保存assistant消息失败: %v", err)
+			}
+		}(realModelId, anonLabel)
+	}
+	wg.Wait()
+	close(ch)
+	wgConsumer.Wait()
+	return nil
+}
+
+func (s *ConversationService) GetBattleModelMapping(conversationID string, userID int64) (*vo.BattleModelMappingVO, error) {
+	conv, err := s.conversationRepo.FindByID(conversationID, userID)
+	if err != nil {
+		return nil, common.NewBusinessException(common.NOT_FOUND_ERROR, "对话不存在")
+	}
+	isBattle := conv.IsAnonymous || conv.ConversationType == constant.ConversationTypeBattle
+	if !isBattle {
+		return nil, common.NewBusinessException(common.PARAMS_ERROR, "该对话不是Battle模式")
+	}
+	mapping := make(map[string]string)
+	if conv.ModelMapping != nil && strings.TrimSpace(*conv.ModelMapping) != "" {
+		if err := json.Unmarshal([]byte(*conv.ModelMapping), &mapping); err != nil {
+			return nil, common.NewBusinessException(common.SYSTEM_ERROR, "解析模型映射失败")
+		}
+	} else {
+		var modelIDs []string
+		if conv.Models != "" {
+			if err := json.Unmarshal([]byte(conv.Models), &modelIDs); err == nil && len(modelIDs) >= 2 {
+				mapping[battleAnonymousLabelA] = modelIDs[0]
+				mapping[battleAnonymousLabelB] = modelIDs[1]
+			}
+		}
+	}
+	return &vo.BattleModelMappingVO{Mapping: mapping}, nil
 }

@@ -226,6 +226,59 @@ func (h *ConversationHandler) PromptLabStream(c *gin.Context) {
 	}
 }
 
+// BattleStream Battle 匿名模型对比（流式响应）
+// @Summary      Battle 匿名模型对比
+// @Description  匿名模型对比（流式），返回模型A/模型B等匿名标识
+// @Tags         对话接口
+// @Accept       json
+// @Produce      text/event-stream
+// @Param        request  body      dto.BattleRequest  true  "Battle请求"
+// @Success      200      {object}  vo.StreamChunkVO  "成功"
+// @Router       /conversation/battle/stream [post]
+func (h *ConversationHandler) BattleStream(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusOK, common.Error(common.NOT_LOGIN_ERROR, "未登录"))
+		return
+	}
+
+	var req dto.BattleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("参数绑定失败: %v", err)
+		c.JSON(http.StatusOK, common.Error(common.PARAMS_ERROR, "参数错误"))
+		return
+	}
+
+	log.Printf("Battle stream request: user=%d, models=%v", userID, req.Models)
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no")
+
+	err := h.conversationService.BattleStream(&req, userID.(int64), func(chunk vo.StreamChunkVO) error {
+		data, err := json.Marshal(chunk)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+		if err != nil {
+			return err
+		}
+		c.Writer.Flush()
+		return nil
+	})
+
+	if err != nil {
+		log.Printf("Battle流式调用失败: %v", err)
+		if bizErr, ok := err.(*common.BusinessException); ok {
+			middleware.WriteSseError(c, bizErr.Code, bizErr.Message)
+		} else {
+			middleware.WriteSseError(c, common.SYSTEM_ERROR, "系统内部异常")
+		}
+	}
+}
+
 // GetConversation 获取对话详情
 // @Summary      获取对话详情
 // @Description  获取对话详情
@@ -345,6 +398,42 @@ func (h *ConversationHandler) GetConversationMessages(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, common.Success(messages))
+}
+
+// GetBattleModelMapping 获取 Battle 模式模型映射（揭晓答案）
+// @Summary      获取 Battle 模式模型映射
+// @Description  揭晓匿名模型对应的真实模型名称
+// @Tags         对话接口
+// @Accept       json
+// @Produce      json
+// @Param        conversationId  query     string  true  "对话ID"
+// @Success      200             {object}  common.BaseResponse{data=vo.BattleModelMappingVO}  "成功"
+// @Router       /conversation/battle/mapping [get]
+func (h *ConversationHandler) GetBattleModelMapping(c *gin.Context) {
+	userID, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusOK, common.Error(common.NOT_LOGIN_ERROR, "未登录"))
+		return
+	}
+
+	conversationID := c.Query("conversationId")
+	if conversationID == "" {
+		c.JSON(http.StatusOK, common.Error(common.PARAMS_ERROR, "对话ID不能为空"))
+		return
+	}
+
+	mapping, err := h.conversationService.GetBattleModelMapping(conversationID, userID.(int64))
+	if err != nil {
+		if bizErr, ok := err.(*common.BusinessException); ok {
+			c.JSON(http.StatusOK, common.Error(bizErr.Code, bizErr.Message))
+		} else {
+			log.Printf("获取Battle映射失败: %v", err)
+			c.JSON(http.StatusOK, common.Error(common.SYSTEM_ERROR, "系统内部异常"))
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, common.Success(mapping))
 }
 
 // DeleteConversation 删除对话
