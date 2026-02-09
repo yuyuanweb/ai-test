@@ -2,6 +2,7 @@
 应用主入口
 @author <a href="https://codefather.cn">编程导航学习圈</a>
 """
+import asyncio
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,7 +12,8 @@ from contextlib import asynccontextmanager
 from app.core.config import get_settings
 from app.core.errors import BusinessException
 from app.core.logging_config import logger
-from app.api import user, health, test, conversation, model, rating
+from app.api import user, health, test, conversation, model, rating, scene, batch_test
+from app.ws.router import router as ws_router
 from app.middleware.session_middleware import RedisSessionMiddleware
 from app.db.redis_session import RedisSessionBackend
 from app.db.redis import get_redis_client
@@ -25,7 +27,10 @@ async def lifespan(app: FastAPI):
     应用生命周期管理
     """
     logger.info("应用启动")
-    
+
+    from app.services.progress_service import set_event_loop
+    set_event_loop(asyncio.get_running_loop())
+
     redis_client = await get_redis_client()
     session_backend = RedisSessionBackend(redis_client)
     
@@ -88,6 +93,9 @@ app.include_router(test.router, prefix="/api")
 app.include_router(conversation.router, prefix="/api")
 app.include_router(model.router, prefix="/api")
 app.include_router(rating.router, prefix="/api")
+app.include_router(scene.router, prefix="/api")
+app.include_router(batch_test.router, prefix="/api")
+app.include_router(ws_router, prefix="/api/ws")
 
 
 if __name__ == "__main__":

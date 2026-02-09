@@ -5,7 +5,7 @@
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class UserRegisterRequest(BaseModel):
@@ -91,6 +91,26 @@ class UserAddRequest(BaseModel):
 
     class Config:
         populate_by_name = True
+
+
+class UserStatisticsVO(BaseModel):
+    """
+    用户统计数据
+    """
+    total_models: int = Field(0, description="模型总数", alias="totalModels")
+    total_tokens: int = Field(0, description="总Tokens使用量", alias="totalTokens")
+    total_cost: Decimal = Field(Decimal("0"), description="总花费(USD)", alias="totalCost")
+    today_cost: Decimal = Field(Decimal("0"), description="今日花费(USD)", alias="todayCost")
+    month_cost: Decimal = Field(Decimal("0"), description="本月花费(USD)", alias="monthCost")
+    daily_budget: Optional[Decimal] = Field(None, description="日预算限额(USD)", alias="dailyBudget")
+    monthly_budget: Optional[Decimal] = Field(None, description="月预算限额(USD)", alias="monthlyBudget")
+    budget_alert_threshold: int = Field(80, description="预算预警阈值(百分比)", alias="budgetAlertThreshold")
+    daily_budget_usage_percent: Decimal = Field(Decimal("0"), description="今日预算使用百分比", alias="dailyBudgetUsagePercent")
+    monthly_budget_usage_percent: Decimal = Field(Decimal("0"), description="本月预算使用百分比", alias="monthlyBudgetUsagePercent")
+    daily_budget_alert: bool = Field(False, description="是否触发日预算预警", alias="dailyBudgetAlert")
+    monthly_budget_alert: bool = Field(False, description="是否触发月预算预警", alias="monthlyBudgetAlert")
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
 
 
 class UserQueryRequest(BaseModel):
