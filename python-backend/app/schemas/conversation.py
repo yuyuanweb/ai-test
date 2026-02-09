@@ -81,12 +81,15 @@ class CodeModePromptLabRequest(BaseModel):
 
 class BattleRequest(BaseModel):
     """Battle 匿名模型对比请求"""
-    conversation_id: Optional[str] = Field(None, description="对话ID（可选）")
-    models: Optional[List[str]] = Field(None, description="模型列表（可选，默认随机选择2个）")
-    prompt: str = Field(..., description="提示词")
-    image_urls: Optional[List[str]] = Field(None, description="图片URL列表")
-    web_search_enabled: Optional[bool] = Field(False, description="是否启用联网搜索")
-    code_preview_enabled: Optional[bool] = Field(False, description="是否启用代码预览")
+    conversation_id: Optional[str] = Field(None, description="对话ID（可选）", alias="conversationId")
+    models: Optional[List[str]] = Field(None, description="模型列表（可选，2-8个，默认随机选择2个）")
+    prompt: str = Field(..., description="用户提示词")
+    stream: Optional[bool] = Field(True, description="是否使用流式响应")
+    image_urls: Optional[List[str]] = Field(None, description="图片URL列表", alias="imageUrls")
+    web_search_enabled: Optional[bool] = Field(False, description="是否启用联网搜索", alias="webSearchEnabled")
+    code_preview_enabled: Optional[bool] = Field(False, description="是否启用代码预览模式（代码模式下的Battle）", alias="codePreviewEnabled")
+
+    model_config = {"populate_by_name": True}
 
 
 class DeleteConversationRequest(BaseModel):
@@ -178,6 +181,6 @@ class ConversationMessageVO(BaseModel):
 
 class BattleModelMappingVO(BaseModel):
     """Battle模式模型映射关系"""
-    model_mapping: Dict[str, str] = Field(..., description="模型映射关系，如 {'模型A': 'openai/gpt-4o'}")
-    
-    model_config = {"protected_namespaces": ()}
+    mapping: Dict[str, str] = Field(..., description="匿名标识到真实模型名称的映射，如 {'模型A': 'openai/gpt-4o'}")
+
+    model_config = {"protected_namespaces": (), "populate_by_name": True}
