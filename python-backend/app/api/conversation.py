@@ -22,8 +22,15 @@ from app.schemas.conversation import (
 )
 from app.services.user_service import UserService
 from app.services.conversation_service import ConversationService
+from app.utils.rate_limit import check_rate_limit, RateLimitType
 
 router = APIRouter(prefix="/conversation", tags=["对话接口"])
+
+
+def _get_redis(request: Request):
+    if request is None:
+        return None
+    return getattr(request.app.state, "redis_client", None)
 
 
 @router.post("/create", response_model=BaseResponse[str], summary="创建对话")
@@ -37,7 +44,7 @@ async def create_conversation(
     """
     login_user = await UserService.get_login_user(db, http_request)
     
-    conversation_service = ConversationService(db)
+    conversation_service = ConversationService(db, _get_redis(http_request))
     conversation_id = await conversation_service.create_conversation(
         request_data,
         login_user.id
@@ -55,9 +62,14 @@ async def chat_stream(
     """
     基础对话（流式响应）
     """
+    await check_rate_limit(
+        _get_redis(http_request), http_request,
+        RateLimitType.USER, 5, 60,
+        message="AI 对话请求过于频繁，请稍后再试"
+    )
     login_user = await UserService.get_login_user(db, http_request)
     
-    conversation_service = ConversationService(db)
+    conversation_service = ConversationService(db, _get_redis(http_request))
     
     return StreamingResponse(
         conversation_service.chat_stream(request_data, login_user.id),
@@ -79,9 +91,14 @@ async def side_by_side_stream(
     """
     Side-by-Side 多模型并排对比（流式响应）
     """
+    await check_rate_limit(
+        _get_redis(http_request), http_request,
+        RateLimitType.USER, 5, 60,
+        message="AI 对话请求过于频繁，请稍后再试"
+    )
     login_user = await UserService.get_login_user(db, http_request)
     
-    conversation_service = ConversationService(db)
+    conversation_service = ConversationService(db, _get_redis(http_request))
     
     return StreamingResponse(
         conversation_service.side_by_side_stream(request_data, login_user.id),
@@ -103,9 +120,14 @@ async def prompt_lab_stream(
     """
     Prompt Lab 单模型多提示词对比（流式响应）
     """
+    await check_rate_limit(
+        _get_redis(http_request), http_request,
+        RateLimitType.USER, 5, 60,
+        message="AI 对话请求过于频繁，请稍后再试"
+    )
     login_user = await UserService.get_login_user(db, http_request)
 
-    conversation_service = ConversationService(db)
+    conversation_service = ConversationService(db, _get_redis(http_request))
 
     return StreamingResponse(
         conversation_service.prompt_lab_stream(request_data, login_user.id),
@@ -127,9 +149,14 @@ async def code_mode_stream(
     """
     Code Mode 代码模式（流式响应）
     """
+    await check_rate_limit(
+        _get_redis(http_request), http_request,
+        RateLimitType.USER, 5, 60,
+        message="AI 对话请求过于频繁，请稍后再试"
+    )
     login_user = await UserService.get_login_user(db, http_request)
 
-    conversation_service = ConversationService(db)
+    conversation_service = ConversationService(db, _get_redis(http_request))
 
     return StreamingResponse(
         conversation_service.code_mode_stream(request_data, login_user.id),
@@ -151,9 +178,14 @@ async def code_mode_prompt_lab_stream(
     """
     Code Mode 提示词实验（流式响应）
     """
+    await check_rate_limit(
+        _get_redis(http_request), http_request,
+        RateLimitType.USER, 5, 60,
+        message="AI 对话请求过于频繁，请稍后再试"
+    )
     login_user = await UserService.get_login_user(db, http_request)
 
-    conversation_service = ConversationService(db)
+    conversation_service = ConversationService(db, _get_redis(http_request))
 
     return StreamingResponse(
         conversation_service.code_mode_prompt_lab_stream(request_data, login_user.id),
@@ -177,7 +209,7 @@ async def get_conversation(
     """
     login_user = await UserService.get_login_user(db, http_request)
     
-    conversation_service = ConversationService(db)
+    conversation_service = ConversationService(db, _get_redis(http_request))
     conversation = await conversation_service.get_conversation(
         conversationId,
         login_user.id
@@ -197,7 +229,7 @@ async def delete_conversation(
     """
     login_user = await UserService.get_login_user(db, http_request)
     
-    conversation_service = ConversationService(db)
+    conversation_service = ConversationService(db, _get_redis(http_request))
     result = await conversation_service.delete_conversation(
         request_data.id,
         login_user.id
@@ -224,7 +256,7 @@ async def list_conversations(
     if codePreviewEnabled is not None:
         code_preview_enabled = codePreviewEnabled == 1
 
-    conversation_service = ConversationService(db)
+    conversation_service = ConversationService(db, _get_redis(http_request))
     conversations, total = await conversation_service.list_conversations(
         user_id=login_user.id,
         page_num=pageNum,
@@ -256,7 +288,7 @@ async def get_conversation_messages(
     """
     login_user = await UserService.get_login_user(db, http_request)
     
-    conversation_service = ConversationService(db)
+    conversation_service = ConversationService(db, _get_redis(http_request))
     messages = await conversation_service.get_conversation_messages(
         conversationId,
         login_user.id

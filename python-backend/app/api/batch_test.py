@@ -15,8 +15,15 @@ from app.schemas.batch_test import (
 )
 from app.services.batch_test_service import BatchTestService
 from app.services.user_service import UserService
+from app.utils.rate_limit import check_rate_limit, RateLimitType
 
 router = APIRouter(prefix="/batch-test", tags=["批量测试接口"])
+
+
+def _get_redis(request: Request):
+    if request is None:
+        return None
+    return getattr(request.app.state, "redis_client", None)
 
 
 @router.post("/create", response_model=BaseResponse[str], summary="创建批量测试任务")
@@ -36,6 +43,11 @@ async def create_batch_test_task(
     Returns:
         任务ID
     """
+    await check_rate_limit(
+        _get_redis(request), request,
+        RateLimitType.USER, 3, 60,
+        message="批量测试创建过于频繁，请稍后再试"
+    )
     user = await UserService.get_login_user(db, request)
     req_data = request_body.model_dump(exclude_none=True)
     if "sceneId" in req_data:

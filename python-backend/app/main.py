@@ -4,9 +4,10 @@
 """
 import asyncio
 import uvicorn
+import json
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from contextlib import asynccontextmanager
 
 from app.core.config import get_settings
@@ -76,15 +77,46 @@ app.add_middleware(
 )
 
 
+EVENT_BUSINESS_ERROR = "business-error"
+EVENT_DONE = "done"
+
+
+def _is_sse_request(request: Request) -> bool:
+    accept = request.headers.get("Accept") or ""
+    if "text/event-stream" in accept:
+        return True
+    path = str(request.url.path) if request.url else ""
+    return "/stream" in path
+
+
+def _build_sse_error_response(error_code: int, error_message: str) -> Response:
+    payload = {
+        "error": True,
+        "code": error_code,
+        "message": error_message if error_message else "未知错误"
+    }
+    body = f"event: {EVENT_BUSINESS_ERROR}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    body += f"event: {EVENT_DONE}\ndata: {{}}\n\n"
+    return Response(
+        content=body,
+        status_code=200,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
+
+
 @app.exception_handler(BusinessException)
 async def business_exception_handler(request: Request, exc: BusinessException):
     """
-    业务异常处理器
+    业务异常处理器，对 SSE 请求返回 business-error 事件
     """
-    return JSONResponse(
-        status_code=200,
-        content=exc.to_dict()
-    )
+    logger.error("BusinessException: code=%s, detail=%s", exc.code, exc.detail)
+    if _is_sse_request(request):
+        return _build_sse_error_response(exc.code, str(exc.detail))
+    return JSONResponse(status_code=200, content=exc.to_dict())
 
 
 app.include_router(health.router, prefix="/api")

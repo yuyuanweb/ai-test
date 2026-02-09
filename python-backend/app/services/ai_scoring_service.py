@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.errors import BusinessException, ErrorCode
+from app.utils.ai_retry_helper import run_with_retry, run_with_retry_async
 from app.core.logging_config import logger
 from app.models.model import Model
 from app.schemas.evaluation import EvaluationResult, JudgeScore, AIScoreResult
@@ -229,33 +230,26 @@ class AIScoringServiceImpl(AIScoringService):
         """
         调用单个评委模型，返回 (解析结果, input_tokens, output_tokens)
         """
-        last_error: Optional[Exception] = None
-        for attempt in range(SCORING_RETRY_TIMES):
-            try:
-                resp = await self._client.chat.completions.create(
+        try:
+            resp = await run_with_retry_async(
+                lambda: self._client.chat.completions.create(
                     model=model_name,
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.3,
                     max_tokens=1024,
                     extra_headers=self._extra_headers,
                 )
-                content = ""
-                if resp.choices and len(resp.choices) > 0:
-                    content = (resp.choices[0].message.content or "").strip()
-                input_tokens = resp.usage.prompt_tokens if resp.usage else 0
-                output_tokens = resp.usage.completion_tokens if resp.usage else 0
-                ev = _parse_evaluation_result(content)
-                return ev, input_tokens, output_tokens
-            except Exception as e:
-                last_error = e
-                logger.warning(
-                    "评委 %s 第 %s 次调用失败: %s",
-                    model_name,
-                    attempt + 1,
-                    e,
-                )
-        logger.error("评委 %s 评分失败: %s", model_name, last_error)
-        return None, 0, 0
+            )
+            content = ""
+            if resp.choices and len(resp.choices) > 0:
+                content = (resp.choices[0].message.content or "").strip()
+            input_tokens = resp.usage.prompt_tokens if resp.usage else 0
+            output_tokens = resp.usage.completion_tokens if resp.usage else 0
+            ev = _parse_evaluation_result(content)
+            return ev, input_tokens, output_tokens
+        except Exception as e:
+            logger.error("评委 %s 评分失败: %s", model_name, e)
+            return None, 0, 0
 
     async def score(
         self,
@@ -407,25 +401,23 @@ def _invoke_judge_sync(
     """
     同步调用单个评委模型，返回解析结果
     """
-    last_error: Optional[Exception] = None
-    for _ in range(SCORING_RETRY_TIMES):
-        try:
-            resp = client.chat.completions.create(
+    try:
+        resp = run_with_retry(
+            lambda: client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=1024,
                 extra_headers=extra_headers or {},
             )
-            content = ""
-            if resp.choices and len(resp.choices) > 0:
-                content = (resp.choices[0].message.content or "").strip()
-            return _parse_evaluation_result(content)
-        except Exception as e:
-            last_error = e
-            logger.warning("评委 %s 同步调用失败: %s", model_name, e)
-    logger.error("评委 %s 同步评分失败: %s", model_name, last_error)
-    return None
+        )
+        content = ""
+        if resp.choices and len(resp.choices) > 0:
+            content = (resp.choices[0].message.content or "").strip()
+        return _parse_evaluation_result(content)
+    except Exception as e:
+        logger.error("评委 %s 同步评分失败: %s", model_name, e)
+        return None
 
 
 def run_ai_scoring_sync(

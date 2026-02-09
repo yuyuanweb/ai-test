@@ -31,9 +31,11 @@ from app.schemas.conversation import (
     ConversationMessageVO
 )
 from app.utils.code_extractor import extract_code_blocks
+from app.utils.prompt_guardrail import validate as validate_prompt
 from app.core.errors import BusinessException, ErrorCode
 from app.core.config import get_settings
 from app.utils.cost_calculator import CostCalculator
+from app.utils.model_pricing_cache import get_model_pricing_cached_async
 
 settings = get_settings()
 
@@ -74,8 +76,9 @@ class ConversationService:
     对话服务类
     """
     
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, redis_client=None):
         self.db = db
+        self.redis_client = redis_client
         self.openai_client = AsyncOpenAI(
             api_key=settings.OPENROUTER_API_KEY,
             base_url=settings.OPENROUTER_BASE_URL
@@ -144,7 +147,8 @@ class ConversationService:
         
         if not request.message or not request.message.strip():
             raise BusinessException(ErrorCode.PARAMS_ERROR, "消息不能为空")
-        
+        validate_prompt(request.message)
+
         conversation_id = request.conversation_id
         if not conversation_id:
             conversation_id = str(uuid.uuid4())
@@ -207,7 +211,8 @@ class ConversationService:
         
         if not request.prompt or not request.prompt.strip():
             raise BusinessException(ErrorCode.PARAMS_ERROR, "提示词不能为空")
-        
+        validate_prompt(request.prompt)
+
         conversation_id = request.conversation_id
         if not conversation_id:
             conversation_id = str(uuid.uuid4())
@@ -452,6 +457,7 @@ class ConversationService:
             )
         if not request.prompt or not request.prompt.strip():
             raise BusinessException(ErrorCode.PARAMS_ERROR, "提示词不能为空")
+        validate_prompt(request.prompt)
 
     def _validate_code_mode_prompt_lab_request(self, request: CodeModePromptLabRequest):
         """校验 Code Mode 提示词实验请求参数"""
@@ -464,6 +470,8 @@ class ConversationService:
                 ErrorCode.PARAMS_ERROR,
                 f"提示词变体数量必须在{MIN_PROMPT_VARIANTS_COUNT}-{MAX_PROMPT_VARIANTS_COUNT}个之间"
             )
+        for v in request.prompt_variants:
+            validate_prompt(v)
 
     def _validate_prompt_lab_request(self, request: PromptLabRequest):
         """校验 Prompt Lab 请求参数"""
@@ -476,6 +484,8 @@ class ConversationService:
                 ErrorCode.PARAMS_ERROR,
                 f"提示词变体数量必须在{MIN_PROMPT_VARIANTS_COUNT}-{MAX_PROMPT_VARIANTS_COUNT}个之间"
             )
+        for v in request.prompt_variants:
+            validate_prompt(v)
 
     async def _get_next_message_index(self, conversation_id: str) -> int:
         """获取下一个可用的消息索引"""
@@ -550,11 +560,12 @@ class ConversationService:
         input_tokens = CostCalculator.estimate_tokens(prompt)
         output_tokens = 0
         thinking_start_time = None
-        
-        try:
+        model_info = None
+        if not self.redis_client:
             async with AsyncSessionLocal() as info_db:
                 model_info = await self._get_model_info(info_db, model_name)
-            
+
+        try:
             async with AsyncSessionLocal() as history_db:
                 history_messages = await self._get_history_messages_for_context(
                     history_db,
@@ -747,7 +758,18 @@ class ConversationService:
                 thinking_time = int(time.time() - thinking_start_time)
             
             cost = Decimal('0')
-            if model_info:
+            if self.redis_client:
+                async def _fetch_pricing():
+                    async with AsyncSessionLocal() as db:
+                        m = await self._get_model_info(db, model_name)
+                        return (m.input_price, m.output_price) if m else (None, None)
+                input_price, output_price = await get_model_pricing_cached_async(
+                    self.redis_client, model_name, _fetch_pricing
+                )
+                cost = CostCalculator.calculate_cost(
+                    model_name, input_tokens, output_tokens, input_price, output_price
+                )
+            elif model_info:
                 cost = CostCalculator.calculate_cost(
                     model_name,
                     input_tokens,
