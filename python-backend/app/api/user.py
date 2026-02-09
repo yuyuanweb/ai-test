@@ -14,7 +14,8 @@ from app.schemas.user import (
     UserUpdateRequest,
     UserQueryRequest,
     LoginUserVO,
-    UserVO
+    UserVO,
+    UserStatisticsVO
 )
 from app.schemas.common import DeleteRequest, PageRequest
 from app.services.user_service import UserService
@@ -70,6 +71,20 @@ async def user_login(
         login_request.user_password
     )
     return BaseResponse(code=0, data=login_user, message="ok")
+
+
+@router.get("/statistics", response_model=BaseResponse[UserStatisticsVO], summary="获取用户统计数据")
+async def get_user_statistics(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    获取用户统计数据（模型数、Token、成本、预算等）
+    需要登录
+    """
+    user = await UserService.get_login_user(db, request)
+    statistics = await UserService.get_user_statistics(db, user.id)
+    return BaseResponse(code=0, data=statistics, message="ok")
 
 
 @router.get("/get/login", response_model=BaseResponse[LoginUserVO], summary="获取当前登录用户")

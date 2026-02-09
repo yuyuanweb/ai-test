@@ -9,7 +9,7 @@ import time
 from typing import List, Optional, Dict, Any, AsyncGenerator
 from decimal import Decimal
 from datetime import datetime
-from sqlalchemy import select, and_, func, or_
+from sqlalchemy import select, and_, func, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openai import AsyncOpenAI
@@ -989,8 +989,16 @@ class ConversationService:
         )
         
         db.add(message)
+        await db.execute(
+            update(Model)
+            .where(Model.id == model_name, Model.is_delete == 0)
+            .values(
+                total_tokens=Model.total_tokens + (input_tokens + output_tokens),
+                total_cost=Model.total_cost + cost
+            )
+        )
         await db.commit()
-    
+
     async def _update_conversation_stats(
         self,
         db: AsyncSession,

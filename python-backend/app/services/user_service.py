@@ -2,13 +2,18 @@
 用户服务层
 @author <a href="https://codefather.cn">编程导航学习圈</a>
 """
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Optional, Dict, Any, List
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import Request
 
 from app.models.user import User
-from app.schemas.user import LoginUserVO, UserVO, UserAddRequest, UserUpdateRequest, UserQueryRequest
+from app.models.model import Model
+from app.models.conversation_message import ConversationMessage
+from app.models.test_result import TestResult
+from app.schemas.user import LoginUserVO, UserVO, UserAddRequest, UserUpdateRequest, UserQueryRequest, UserStatisticsVO
 from app.utils.password import encrypt_password
 from app.core.errors import BusinessException, ErrorCode
 
@@ -402,3 +407,129 @@ class UserService:
             "pageSize": query_request.page_size,
             "pages": (total + query_request.page_size - 1) // query_request.page_size
         }
+
+    @staticmethod
+    async def get_user_statistics(db: AsyncSession, user_id: int) -> UserStatisticsVO:
+        """
+        获取用户统计数据（总模型数、总Token、总成本、今日/本月成本、预算等）
+
+        Args:
+            db: 数据库会话
+            user_id: 用户ID
+
+        Returns:
+            用户统计数据
+        """
+        today_start = datetime.combine(date.today(), datetime.min.time())
+        first_day = date.today().replace(day=1)
+        month_start = datetime.combine(first_day, datetime.min.time())
+        if first_day.month == 12:
+            next_month = first_day.replace(year=first_day.year + 1, month=1)
+        else:
+            next_month = first_day.replace(month=first_day.month + 1)
+        month_end = datetime.combine(next_month, datetime.min.time())
+
+        total_models_result = await db.execute(
+            select(func.count()).select_from(Model).where(Model.is_delete == 0)
+        )
+        total_models = total_models_result.scalar() or 0
+
+        cm_tokens = func.coalesce(ConversationMessage.input_tokens, 0) + func.coalesce(ConversationMessage.output_tokens, 0)
+        tr_tokens = func.coalesce(TestResult.input_tokens, 0) + func.coalesce(TestResult.output_tokens, 0)
+
+        cm_total = await db.execute(
+            select(
+                func.coalesce(func.sum(cm_tokens), 0).label("tokens"),
+                func.coalesce(func.sum(ConversationMessage.cost), 0).label("cost")
+            ).where(ConversationMessage.user_id == user_id, ConversationMessage.is_delete == 0)
+        )
+        cm_row = cm_total.one()
+        cm_tokens_val = int(cm_row.tokens) if cm_row.tokens else 0
+        cm_cost_val = Decimal(str(cm_row.cost)) if cm_row.cost else Decimal("0")
+
+        tr_total = await db.execute(
+            select(
+                func.coalesce(func.sum(tr_tokens), 0).label("tokens"),
+                func.coalesce(func.sum(TestResult.cost), 0).label("cost")
+            ).where(TestResult.user_id == user_id, TestResult.is_delete == 0)
+        )
+        tr_row = tr_total.one()
+        tr_tokens_val = int(tr_row.tokens) if tr_row.tokens else 0
+        tr_cost_val = Decimal(str(tr_row.cost)) if tr_row.cost else Decimal("0")
+
+        total_tokens = cm_tokens_val + tr_tokens_val
+        total_cost = cm_cost_val + tr_cost_val
+
+        cm_today = await db.execute(
+            select(func.coalesce(func.sum(ConversationMessage.cost), 0)).where(
+                ConversationMessage.user_id == user_id,
+                ConversationMessage.is_delete == 0,
+                ConversationMessage.create_time >= today_start
+            )
+        )
+        today_cost_cm = Decimal(str(cm_today.scalar() or 0))
+
+        tr_today = await db.execute(
+            select(func.coalesce(func.sum(TestResult.cost), 0)).where(
+                TestResult.user_id == user_id,
+                TestResult.is_delete == 0,
+                TestResult.create_time >= today_start
+            )
+        )
+        today_cost_tr = Decimal(str(tr_today.scalar() or 0))
+        today_cost = today_cost_cm + today_cost_tr
+
+        cm_month = await db.execute(
+            select(func.coalesce(func.sum(ConversationMessage.cost), 0)).where(
+                ConversationMessage.user_id == user_id,
+                ConversationMessage.is_delete == 0,
+                ConversationMessage.create_time >= month_start,
+                ConversationMessage.create_time < month_end
+            )
+        )
+        month_cost_cm = Decimal(str(cm_month.scalar() or 0))
+
+        tr_month = await db.execute(
+            select(func.coalesce(func.sum(TestResult.cost), 0)).where(
+                TestResult.user_id == user_id,
+                TestResult.is_delete == 0,
+                TestResult.create_time >= month_start,
+                TestResult.create_time < month_end
+            )
+        )
+        month_cost_tr = Decimal(str(tr_month.scalar() or 0))
+        month_cost = month_cost_cm + month_cost_tr
+
+        result = await db.execute(
+            select(User).where(User.id == user_id, User.is_delete == 0)
+        )
+        user = result.scalar_one_or_none()
+        daily_budget = user.daily_budget if user else None
+        monthly_budget = user.monthly_budget if user else None
+        alert_threshold = (user.budget_alert_threshold or 80) if user else 80
+
+        daily_usage = Decimal("0")
+        daily_alert = False
+        monthly_usage = Decimal("0")
+        monthly_alert = False
+        if daily_budget and daily_budget > 0:
+            daily_usage = (today_cost * 100 / daily_budget).quantize(Decimal("0.01"))
+            daily_alert = daily_usage >= alert_threshold
+        if monthly_budget and monthly_budget > 0:
+            monthly_usage = (month_cost * 100 / monthly_budget).quantize(Decimal("0.01"))
+            monthly_alert = monthly_usage >= alert_threshold
+
+        return UserStatisticsVO(
+            total_models=total_models,
+            total_tokens=total_tokens,
+            total_cost=total_cost,
+            today_cost=today_cost,
+            month_cost=month_cost,
+            daily_budget=daily_budget,
+            monthly_budget=monthly_budget,
+            budget_alert_threshold=alert_threshold,
+            daily_budget_usage_percent=daily_usage,
+            monthly_budget_usage_percent=monthly_usage,
+            daily_budget_alert=daily_alert,
+            monthly_budget_alert=monthly_alert
+        )

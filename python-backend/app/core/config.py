@@ -18,7 +18,17 @@ class Settings(BaseSettings):
     APP_PORT: int = 9090
     
     DATABASE_URL: str = "mysql+aiomysql://root:123456@localhost:3306/ai_eval"
-    
+
+    @property
+    def sync_database_url(self) -> str:
+        """同步数据库连接 URL（mysql+pymysql，供 sync_session 使用）"""
+        url = self.DATABASE_URL
+        if "aiomysql" in url:
+            return url.replace("mysql+aiomysql", "mysql+pymysql", 1)
+        if "asyncpg" in url:
+            return url.replace("postgresql+asyncpg", "postgresql+psycopg2", 1)
+        return url
+
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
