@@ -154,10 +154,10 @@ class ReportService:
                     continue
                 try:
                     obj = json.loads(r.ai_score) if isinstance(r.ai_score, str) else r.ai_score
-                    total_val = obj.get("total")
-                    if total_val is not None and isinstance(total_val, (int, float)):
-                        if float(total_val) > 0:
-                            ai_scores.append(float(total_val))
+                    rating_val = obj.get("averageRating") or obj.get("total")
+                    if rating_val is not None and isinstance(rating_val, (int, float)):
+                        if float(rating_val) > 0:
+                            ai_scores.append(float(rating_val))
                 except (json.JSONDecodeError, TypeError) as e:
                     logger.warning("解析AI评分失败: %s, %s", r.ai_score, e)
             avg_ai_score = sum(ai_scores) / len(ai_scores) if ai_scores else None

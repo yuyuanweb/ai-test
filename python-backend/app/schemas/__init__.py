@@ -1,4 +1,5 @@
 from .common import BaseResponse, DeleteRequest, PageRequest
+from .evaluation import EvaluationResult, JudgeScore, AIScoreResult
 from .user import (
     UserLoginRequest,
     UserRegisterRequest,
@@ -12,6 +13,9 @@ from .chat import ChatRequest, ChatResponse, StreamChunkVO
 
 __all__ = [
     'BaseResponse',
+    'EvaluationResult',
+    'JudgeScore',
+    'AIScoreResult',
     'DeleteRequest',
     'PageRequest',
     'UserLoginRequest',

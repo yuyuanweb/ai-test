@@ -17,6 +17,7 @@ from app.models.test_task import TestTask
 from app.models.test_result import TestResult
 from app.models.scene import Scene
 from app.models.scene_prompt import ScenePrompt
+from app.schemas.evaluation import AIScoreResult, ai_score_result_to_json
 from app.core.errors import BusinessException, ErrorCode
 from app.core.logging_config import logger
 
@@ -349,6 +350,48 @@ class BatchTestService:
         await db.commit()
 
         logger.info("更新测试结果评分: resultId=%s, userId=%s, rating=%s", result_id, user_id, user_rating)
+        return True
+
+    @staticmethod
+    async def update_test_result_ai_score(
+        db: AsyncSession,
+        result_id: str,
+        ai_score_result: AIScoreResult,
+        user_id: int
+    ) -> bool:
+        """
+        更新测试结果的 AI 评分
+
+        Args:
+            db: 数据库会话
+            result_id: 测试结果ID
+            ai_score_result: AI 评分结果
+            user_id: 用户ID
+
+        Returns:
+            是否成功
+
+        Raises:
+            BusinessException: 业务异常
+        """
+        if not result_id or not str(result_id).strip():
+            raise BusinessException(ErrorCode.PARAMS_ERROR, "测试结果ID不能为空")
+
+        result = await db.execute(
+            select(TestResult).where(TestResult.id == result_id.strip(), TestResult.is_delete == 0)
+        )
+        test_result = result.scalar_one_or_none()
+        if not test_result:
+            raise BusinessException(ErrorCode.NOT_FOUND_ERROR, "测试结果不存在")
+
+        if test_result.user_id != user_id:
+            raise BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限修改该测试结果")
+
+        test_result.ai_score = ai_score_result_to_json(ai_score_result)
+        test_result.update_time = datetime.now()
+        await db.commit()
+
+        logger.info("更新测试结果AI评分: resultId=%s, userId=%s", result_id, user_id)
         return True
 
     @staticmethod
