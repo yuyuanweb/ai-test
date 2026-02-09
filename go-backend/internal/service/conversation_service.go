@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"log"
 	"math/rand"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -48,6 +49,105 @@ func (s *ConversationService) createAssistantMessage(conversationID string, user
 		UpdateTime:     time.Now(),
 		IsDelete:       0,
 	}
+}
+
+func parseImagesJSON(s *string) []string {
+	if s == nil || strings.TrimSpace(*s) == "" {
+		return nil
+	}
+	var urls []string
+	if err := json.Unmarshal([]byte(*s), &urls); err != nil {
+		return nil
+	}
+	return urls
+}
+
+const (
+	webSearchEmptyQueryPlaceholder = "用户请求"
+	maxWebSources                  = 5
+)
+
+var urlInTextRegex = regexp.MustCompile(`https?://[^\s)\]}>"']+`)
+
+func extractURLsFromContent(content string) []string {
+	if strings.TrimSpace(content) == "" {
+		return nil
+	}
+	matches := urlInTextRegex.FindAllString(content, -1)
+	seen := make(map[string]bool)
+	var urls []string
+	for _, u := range matches {
+		u = strings.TrimRight(u, ".,;:!?)")
+		if u != "" && !seen[u] {
+			seen[u] = true
+			urls = append(urls, u)
+			if len(urls) >= maxWebSources {
+				break
+			}
+		}
+	}
+	return urls
+}
+
+func buildToolsUsedJSON(webSearchEnabled bool, query string, fullContent string) *string {
+	if !webSearchEnabled {
+		return nil
+	}
+	if strings.TrimSpace(query) == "" {
+		query = webSearchEmptyQueryPlaceholder
+	}
+	sourceUrls := extractURLsFromContent(fullContent)
+	sources := make([]map[string]string, 0, len(sourceUrls))
+	for _, u := range sourceUrls {
+		sources = append(sources, map[string]string{"url": u})
+	}
+	m := map[string]interface{}{
+		"webSearch": map[string]interface{}{
+			"enabled": true,
+			"query":   query,
+			"engine":  "auto",
+			"sources": sources,
+		},
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		return nil
+	}
+	str := string(data)
+	return &str
+}
+
+func effectiveModelForDB(model string, webSearchEnabled bool) string {
+	if !webSearchEnabled || model == "" {
+		return model
+	}
+	if strings.Contains(model, ":online") {
+		return model
+	}
+	return model + ":online"
+}
+
+func historyToLLMMessages(history []model.ConversationMessage, modelFilter string, variantIndex *int) []llm.Message {
+	out := make([]llm.Message, 0)
+	for _, msg := range history {
+		if msg.Role == "user" {
+			out = append(out, llm.Message{
+				Role:      "user",
+				Content:   msg.Content,
+				ImageUrls: parseImagesJSON(msg.Images),
+			})
+		} else if msg.Role == "assistant" {
+			modelMatch := modelFilter == "" || msg.ModelName == modelFilter || strings.TrimSuffix(msg.ModelName, ":online") == modelFilter
+			if !modelMatch {
+				continue
+			}
+			if variantIndex != nil && msg.VariantIndex != nil && *msg.VariantIndex != *variantIndex {
+				continue
+			}
+			out = append(out, llm.Message{Role: "assistant", Content: msg.Content})
+		}
+	}
+	return out
 }
 
 func max(a, b int) int {
@@ -211,6 +311,11 @@ func (s *ConversationService) SideBySideStream(req *dto.SideBySideRequest, userI
 		UpdateTime:     time.Now(),
 		IsDelete:       0,
 	}
+	if len(req.ImageUrls) > 0 {
+		imagesJSON, _ := json.Marshal(req.ImageUrls)
+		s := string(imagesJSON)
+		userMessage.Images = &s
+	}
 	if err := s.conversationMessageRepo.Create(userMessage); err != nil {
 		log.Printf("保存user消息失败: %v", err)
 		return common.NewBusinessException(common.SYSTEM_ERROR, "保存消息失败")
@@ -229,27 +334,14 @@ func (s *ConversationService) SideBySideStream(req *dto.SideBySideRequest, userI
 				log.Printf("加载历史消息失败: %v", err)
 			}
 
-			langchainMessages := make([]llm.Message, 0)
-			for _, msg := range historyMessages {
-				if msg.Role == "user" {
-					langchainMessages = append(langchainMessages, llm.Message{
-						Role:    "user",
-						Content: msg.Content,
-					})
-				} else if msg.Role == "assistant" && msg.ModelName == model {
-					langchainMessages = append(langchainMessages, llm.Message{
-						Role:    "assistant",
-						Content: msg.Content,
-					})
-				}
-			}
+			langchainMessages := historyToLLMMessages(historyMessages, model, nil)
 
 			startTime := time.Now()
 			fullContent := ""
 			fullReasoning := ""
 			outputTokens := 0
 
-			err = s.langchainAdapter.CallStreamWithHistory(ctx, langchainMessages, req.Prompt, model, func(data llm.StreamData) error {
+			err = s.langchainAdapter.CallStreamWithHistory(ctx, langchainMessages, req.Prompt, req.ImageUrls, model, req.WebSearchEnabled, func(data llm.StreamData) error {
 				fullContent += data.Content
 				fullReasoning += data.Reasoning
 				outputTokens += (len(data.Content) + len(data.Reasoning)) / 4
@@ -294,6 +386,7 @@ func (s *ConversationService) SideBySideStream(req *dto.SideBySideRequest, userI
 			totalTokens := inputTokens + outputTokens
 			cost := s.calculateCostByModel(model, inputTokens, outputTokens)
 
+			toolsUsedStr := buildToolsUsedJSON(req.WebSearchEnabled, req.Prompt, fullContent)
 			doneChunk := vo.StreamChunkVO{
 				ConversationID: conversationID,
 				ModelName:      model,
@@ -309,13 +402,17 @@ func (s *ConversationService) SideBySideStream(req *dto.SideBySideRequest, userI
 				Done:           true,
 				HasError:       false,
 			}
+			if toolsUsedStr != nil {
+				doneChunk.ToolsUsed = *toolsUsedStr
+			}
 			onChunk(doneChunk)
 
 			assistantMessageIndex := messageIndex + 1
-			assistantMessage := s.createAssistantMessage(conversationID, userID, assistantMessageIndex, model, fullContent, responseTimeMs, inputTokens, outputTokens)
+			assistantMessage := s.createAssistantMessage(conversationID, userID, assistantMessageIndex, effectiveModelForDB(model, req.WebSearchEnabled), fullContent, responseTimeMs, inputTokens, outputTokens)
 			if fullReasoning != "" {
 				assistantMessage.Reasoning = fullReasoning
 			}
+			assistantMessage.ToolsUsed = toolsUsedStr
 			if err := s.conversationMessageRepo.Create(assistantMessage); err != nil {
 				log.Printf("保存assistant消息失败: %v", err)
 			}
@@ -324,6 +421,13 @@ func (s *ConversationService) SideBySideStream(req *dto.SideBySideRequest, userI
 
 	wg.Wait()
 	return nil
+}
+
+func getVariantImagesSafe(variantImageUrls [][]string, index int) []string {
+	if variantImageUrls == nil || len(variantImageUrls) <= index {
+		return nil
+	}
+	return variantImageUrls[index]
 }
 
 func (s *ConversationService) PromptLabStream(req *dto.PromptLabRequest, userID int64, onChunk func(chunk vo.StreamChunkVO) error) error {
@@ -373,6 +477,11 @@ func (s *ConversationService) PromptLabStream(req *dto.PromptLabRequest, userID 
 			UpdateTime:     time.Now(),
 			IsDelete:       0,
 		}
+		if imgs := getVariantImagesSafe(req.VariantImageUrls, i); len(imgs) > 0 {
+			imagesJSON, _ := json.Marshal(imgs)
+			s := string(imagesJSON)
+			userMessage.Images = &s
+		}
 		if err := s.conversationMessageRepo.Create(userMessage); err != nil {
 			log.Printf("保存user消息失败: %v", err)
 			return common.NewBusinessException(common.SYSTEM_ERROR, "保存消息失败")
@@ -393,29 +502,15 @@ func (s *ConversationService) PromptLabStream(req *dto.PromptLabRequest, userID 
 				log.Printf("加载历史消息失败: %v", err)
 			}
 
-			langchainMessages := make([]llm.Message, 0)
-			for _, msg := range historyMessages {
-				if msg.Role == "user" {
-					langchainMessages = append(langchainMessages, llm.Message{
-						Role:    "user",
-						Content: msg.Content,
-					})
-				} else if msg.Role == "assistant" && msg.ModelName == req.Model {
-					if msg.VariantIndex != nil && *msg.VariantIndex == vIndex {
-						langchainMessages = append(langchainMessages, llm.Message{
-							Role:    "assistant",
-							Content: msg.Content,
-						})
-					}
-				}
-			}
+			langchainMessages := historyToLLMMessages(historyMessages, req.Model, &vIndex)
 
 			startTime := time.Now()
 			fullContent := ""
 			fullReasoning := ""
 			outputTokens := 0
 
-			err = s.langchainAdapter.CallStreamWithHistory(ctx, langchainMessages, variant, req.Model, func(data llm.StreamData) error {
+			variantImageUrls := getVariantImagesSafe(req.VariantImageUrls, vIndex)
+			err = s.langchainAdapter.CallStreamWithHistory(ctx, langchainMessages, variant, variantImageUrls, req.Model, req.WebSearchEnabled, func(data llm.StreamData) error {
 				fullContent += data.Content
 				fullReasoning += data.Reasoning
 				outputTokens += (len(data.Content) + len(data.Reasoning)) / 4
@@ -464,6 +559,7 @@ func (s *ConversationService) PromptLabStream(req *dto.PromptLabRequest, userID 
 			totalTokens := inputTokens + outputTokens
 			cost := s.calculateCostByModel(req.Model, inputTokens, outputTokens)
 
+			toolsUsedStr := buildToolsUsedJSON(req.WebSearchEnabled, variant, fullContent)
 			doneChunk := vo.StreamChunkVO{
 				ConversationID: conversationID,
 				ModelName:      req.Model,
@@ -481,13 +577,17 @@ func (s *ConversationService) PromptLabStream(req *dto.PromptLabRequest, userID 
 				Done:           true,
 				HasError:       false,
 			}
+			if toolsUsedStr != nil {
+				doneChunk.ToolsUsed = *toolsUsedStr
+			}
 			onChunk(doneChunk)
 
-			assistantMessage := s.createAssistantMessage(conversationID, userID, assistantMessageIndex, req.Model, fullContent, responseTimeMs, inputTokens, outputTokens)
+			assistantMessage := s.createAssistantMessage(conversationID, userID, assistantMessageIndex, effectiveModelForDB(req.Model, req.WebSearchEnabled), fullContent, responseTimeMs, inputTokens, outputTokens)
 			assistantMessage.VariantIndex = &vIndex
 			if fullReasoning != "" {
 				assistantMessage.Reasoning = fullReasoning
 			}
+			assistantMessage.ToolsUsed = toolsUsedStr
 			if err := s.conversationMessageRepo.Create(assistantMessage); err != nil {
 				log.Printf("保存assistant消息失败: %v", err)
 			}
@@ -539,6 +639,11 @@ func (s *ConversationService) ChatStream(req *dto.ChatRequest, userID int64, onC
 		UpdateTime:     time.Now(),
 		IsDelete:       0,
 	}
+	if len(req.ImageUrls) > 0 {
+		imagesJSON, _ := json.Marshal(req.ImageUrls)
+		s := string(imagesJSON)
+		userMessage.Images = &s
+	}
 	if err := s.conversationMessageRepo.Create(userMessage); err != nil {
 		log.Printf("保存user消息失败: %v", err)
 		return common.NewBusinessException(common.SYSTEM_ERROR, "保存消息失败")
@@ -549,20 +654,7 @@ func (s *ConversationService) ChatStream(req *dto.ChatRequest, userID int64, onC
 		log.Printf("加载历史消息失败: %v", err)
 	}
 
-	langchainMessages := make([]llm.Message, 0)
-	for _, msg := range historyMessages {
-		if msg.Role == "user" {
-			langchainMessages = append(langchainMessages, llm.Message{
-				Role:    "user",
-				Content: msg.Content,
-			})
-		} else if msg.Role == "assistant" && msg.ModelName == req.Model {
-			langchainMessages = append(langchainMessages, llm.Message{
-				Role:    "assistant",
-				Content: msg.Content,
-			})
-		}
-	}
+	langchainMessages := historyToLLMMessages(historyMessages, req.Model, nil)
 
 	ctx := context.Background()
 	startTime := time.Now()
@@ -570,7 +662,7 @@ func (s *ConversationService) ChatStream(req *dto.ChatRequest, userID int64, onC
 	fullReasoning := ""
 	outputTokens := 0
 
-	err = s.langchainAdapter.CallStreamWithHistory(ctx, langchainMessages, req.Message, req.Model, func(data llm.StreamData) error {
+	err = s.langchainAdapter.CallStreamWithHistory(ctx, langchainMessages, req.Message, req.ImageUrls, req.Model, req.WebSearchEnabled, func(data llm.StreamData) error {
 		fullContent += data.Content
 		fullReasoning += data.Reasoning
 		outputTokens += (len(data.Content) + len(data.Reasoning)) / 4
@@ -614,6 +706,7 @@ func (s *ConversationService) ChatStream(req *dto.ChatRequest, userID int64, onC
 	totalTokens := inputTokens + outputTokens
 	cost := s.calculateCostByModel(req.Model, inputTokens, outputTokens)
 
+	toolsUsedStr := buildToolsUsedJSON(req.WebSearchEnabled, req.Message, fullContent)
 	doneChunk := vo.StreamChunkVO{
 		ConversationID: conversationID,
 		ModelName:      req.Model,
@@ -629,13 +722,17 @@ func (s *ConversationService) ChatStream(req *dto.ChatRequest, userID int64, onC
 		Done:           true,
 		HasError:       false,
 	}
+	if toolsUsedStr != nil {
+		doneChunk.ToolsUsed = *toolsUsedStr
+	}
 	onChunk(doneChunk)
 
 	assistantMessageIndex := messageIndex + 1
-	assistantMessage := s.createAssistantMessage(conversationID, userID, assistantMessageIndex, req.Model, fullContent, responseTimeMs, inputTokens, outputTokens)
+	assistantMessage := s.createAssistantMessage(conversationID, userID, assistantMessageIndex, effectiveModelForDB(req.Model, req.WebSearchEnabled), fullContent, responseTimeMs, inputTokens, outputTokens)
 	if fullReasoning != "" {
 		assistantMessage.Reasoning = fullReasoning
 	}
+	assistantMessage.ToolsUsed = toolsUsedStr
 	if err := s.conversationMessageRepo.Create(assistantMessage); err != nil {
 		log.Printf("保存assistant消息失败: %v", err)
 		return err
@@ -645,9 +742,10 @@ func (s *ConversationService) ChatStream(req *dto.ChatRequest, userID int64, onC
 }
 
 func (s *ConversationService) calculateCostByModel(modelID string, inputTokens, outputTokens int) float64 {
-	model, err := s.modelRepo.FindByID(modelID)
+	baseModelID := strings.TrimSuffix(modelID, ":online")
+	model, err := s.modelRepo.FindByID(baseModelID)
 	if err != nil || model == nil {
-		log.Printf("查询模型%s价格失败，使用默认价格: %v", modelID, err)
+		log.Printf("查询模型%s价格失败，使用默认价格: %v", baseModelID, err)
 		return s.calculateCostWithDefaultPrice(inputTokens, outputTokens)
 	}
 
@@ -743,6 +841,11 @@ func (s *ConversationService) CodeModeStream(req *dto.CodeModeRequest, userID in
 		UpdateTime:     time.Now(),
 		IsDelete:       0,
 	}
+	if len(req.ImageUrls) > 0 {
+		imagesJSON, _ := json.Marshal(req.ImageUrls)
+		s := string(imagesJSON)
+		userMessage.Images = &s
+	}
 	if err := s.conversationMessageRepo.Create(userMessage); err != nil {
 		log.Printf("保存user消息失败: %v", err)
 		return common.NewBusinessException(common.SYSTEM_ERROR, "保存消息失败")
@@ -761,27 +864,14 @@ func (s *ConversationService) CodeModeStream(req *dto.CodeModeRequest, userID in
 				log.Printf("加载历史消息失败: %v", err)
 			}
 
-			langchainMessages := make([]llm.Message, 0)
-			for _, msg := range historyMessages {
-				if msg.Role == "user" {
-					langchainMessages = append(langchainMessages, llm.Message{
-						Role:    "user",
-						Content: msg.Content,
-					})
-				} else if msg.Role == "assistant" && msg.ModelName == model {
-					langchainMessages = append(langchainMessages, llm.Message{
-						Role:    "assistant",
-						Content: msg.Content,
-					})
-				}
-			}
+			langchainMessages := historyToLLMMessages(historyMessages, model, nil)
 
 			startTime := time.Now()
 			fullContent := ""
 			fullReasoning := ""
 			outputTokens := 0
 
-			err = s.langchainAdapter.CallStreamWithSystemPrompt(ctx, langchainMessages, req.Prompt, constant.CODE_MODE_SYSTEM_PROMPT, model, func(data llm.StreamData) error {
+			err = s.langchainAdapter.CallStreamWithSystemPrompt(ctx, langchainMessages, req.Prompt, req.ImageUrls, constant.CODE_MODE_SYSTEM_PROMPT, model, req.WebSearchEnabled, func(data llm.StreamData) error {
 				fullContent += data.Content
 				fullReasoning += data.Reasoning
 				outputTokens += (len(data.Content) + len(data.Reasoning)) / 4
@@ -837,6 +927,7 @@ func (s *ConversationService) CodeModeStream(req *dto.CodeModeRequest, userID in
 			totalTokens := inputTokens + outputTokens
 			cost := s.calculateCostByModel(model, inputTokens, outputTokens)
 
+			toolsUsedStr := buildToolsUsedJSON(req.WebSearchEnabled, req.Prompt, fullContent)
 			doneChunk := vo.StreamChunkVO{
 				ConversationID: conversationID,
 				ModelName:      model,
@@ -854,14 +945,18 @@ func (s *ConversationService) CodeModeStream(req *dto.CodeModeRequest, userID in
 				Done:           true,
 				HasError:       false,
 			}
+			if toolsUsedStr != nil {
+				doneChunk.ToolsUsed = *toolsUsedStr
+			}
 			onChunk(doneChunk)
 
 			assistantMessageIndex := messageIndex + 1
-			assistantMessage := s.createAssistantMessage(conversationID, userID, assistantMessageIndex, model, fullContent, responseTimeMs, inputTokens, outputTokens)
+			assistantMessage := s.createAssistantMessage(conversationID, userID, assistantMessageIndex, effectiveModelForDB(model, req.WebSearchEnabled), fullContent, responseTimeMs, inputTokens, outputTokens)
 			if fullReasoning != "" {
 				assistantMessage.Reasoning = fullReasoning
 			}
 			assistantMessage.CodeBlocks = codeBlocksJSON
+			assistantMessage.ToolsUsed = toolsUsedStr
 			if err := s.conversationMessageRepo.Create(assistantMessage); err != nil {
 				log.Printf("保存assistant消息失败: %v", err)
 			}
@@ -920,6 +1015,11 @@ func (s *ConversationService) CodeModePromptLabStream(req *dto.CodeModePromptLab
 			UpdateTime:     time.Now(),
 			IsDelete:       0,
 		}
+		if imgs := getVariantImagesSafe(req.VariantImageUrls, i); len(imgs) > 0 {
+			imagesJSON, _ := json.Marshal(imgs)
+			s := string(imagesJSON)
+			userMessage.Images = &s
+		}
 		if err := s.conversationMessageRepo.Create(userMessage); err != nil {
 			log.Printf("保存user消息失败: %v", err)
 			return common.NewBusinessException(common.SYSTEM_ERROR, "保存消息失败")
@@ -940,29 +1040,15 @@ func (s *ConversationService) CodeModePromptLabStream(req *dto.CodeModePromptLab
 				log.Printf("加载历史消息失败: %v", err)
 			}
 
-			langchainMessages := make([]llm.Message, 0)
-			for _, msg := range historyMessages {
-				if msg.Role == "user" {
-					langchainMessages = append(langchainMessages, llm.Message{
-						Role:    "user",
-						Content: msg.Content,
-					})
-				} else if msg.Role == "assistant" && msg.ModelName == req.Model {
-					if msg.VariantIndex != nil && *msg.VariantIndex == vIndex {
-						langchainMessages = append(langchainMessages, llm.Message{
-							Role:    "assistant",
-							Content: msg.Content,
-						})
-					}
-				}
-			}
+			langchainMessages := historyToLLMMessages(historyMessages, req.Model, &vIndex)
 
 			startTime := time.Now()
 			fullContent := ""
 			fullReasoning := ""
 			outputTokens := 0
 
-			err = s.langchainAdapter.CallStreamWithSystemPrompt(ctx, langchainMessages, variant, constant.CODE_MODE_SYSTEM_PROMPT, req.Model, func(data llm.StreamData) error {
+			variantImageUrls := getVariantImagesSafe(req.VariantImageUrls, vIndex)
+			err = s.langchainAdapter.CallStreamWithSystemPrompt(ctx, langchainMessages, variant, variantImageUrls, constant.CODE_MODE_SYSTEM_PROMPT, req.Model, req.WebSearchEnabled, func(data llm.StreamData) error {
 				fullContent += data.Content
 				fullReasoning += data.Reasoning
 				outputTokens += (len(data.Content) + len(data.Reasoning)) / 4
@@ -1022,6 +1108,7 @@ func (s *ConversationService) CodeModePromptLabStream(req *dto.CodeModePromptLab
 			totalTokens := inputTokens + outputTokens
 			cost := s.calculateCostByModel(req.Model, inputTokens, outputTokens)
 
+			toolsUsedStr := buildToolsUsedJSON(req.WebSearchEnabled, variant, fullContent)
 			doneChunk := vo.StreamChunkVO{
 				ConversationID: conversationID,
 				ModelName:      req.Model,
@@ -1041,14 +1128,18 @@ func (s *ConversationService) CodeModePromptLabStream(req *dto.CodeModePromptLab
 				Done:           true,
 				HasError:       false,
 			}
+			if toolsUsedStr != nil {
+				doneChunk.ToolsUsed = *toolsUsedStr
+			}
 			onChunk(doneChunk)
 
-			assistantMessage := s.createAssistantMessage(conversationID, userID, assistantMessageIndex, req.Model, fullContent, responseTimeMs, inputTokens, outputTokens)
+			assistantMessage := s.createAssistantMessage(conversationID, userID, assistantMessageIndex, effectiveModelForDB(req.Model, req.WebSearchEnabled), fullContent, responseTimeMs, inputTokens, outputTokens)
 			assistantMessage.VariantIndex = &vIndex
 			if fullReasoning != "" {
 				assistantMessage.Reasoning = fullReasoning
 			}
 			assistantMessage.CodeBlocks = codeBlocksJSON
+			assistantMessage.ToolsUsed = toolsUsedStr
 			if err := s.conversationMessageRepo.Create(assistantMessage); err != nil {
 				log.Printf("保存assistant消息失败: %v", err)
 			}
@@ -1190,6 +1281,11 @@ func (s *ConversationService) BattleStream(req *dto.BattleRequest, userID int64,
 		UpdateTime:     time.Now(),
 		IsDelete:       0,
 	}
+	if len(req.ImageUrls) > 0 {
+		imagesJSON, _ := json.Marshal(req.ImageUrls)
+		s := string(imagesJSON)
+		userMessage.Images = &s
+	}
 	if err := s.conversationMessageRepo.Create(userMessage); err != nil {
 		log.Printf("保存user消息失败: %v", err)
 		return common.NewBusinessException(common.SYSTEM_ERROR, "保存消息失败")
@@ -1218,21 +1314,14 @@ func (s *ConversationService) BattleStream(req *dto.BattleRequest, userID int64,
 		go func(realModelIdForDB, anonLabelForStream string) {
 			defer wg.Done()
 			historyMessages, _ := s.getHistoryMessagesForContext(conversationID, messageIndex, nil)
-			langchainMessages := make([]llm.Message, 0)
-			for _, msg := range historyMessages {
-				if msg.Role == "user" {
-					langchainMessages = append(langchainMessages, llm.Message{Role: "user", Content: msg.Content})
-				} else if msg.Role == "assistant" && msg.ModelName == realModelIdForDB {
-					langchainMessages = append(langchainMessages, llm.Message{Role: "assistant", Content: msg.Content})
-				}
-			}
+			langchainMessages := historyToLLMMessages(historyMessages, realModelIdForDB, nil)
 			startTime := time.Now()
 			fullContent := ""
 			fullReasoning := ""
 			outputTokens := 0
 			var streamErr error
 			if codePreviewEnabled {
-				streamErr = s.langchainAdapter.CallStreamWithSystemPrompt(ctx, langchainMessages, req.Prompt, constant.CODE_MODE_SYSTEM_PROMPT, realModelIdForDB, func(data llm.StreamData) error {
+				streamErr = s.langchainAdapter.CallStreamWithSystemPrompt(ctx, langchainMessages, req.Prompt, req.ImageUrls, constant.CODE_MODE_SYSTEM_PROMPT, realModelIdForDB, req.WebSearchEnabled, func(data llm.StreamData) error {
 					fullContent += data.Content
 					fullReasoning += data.Reasoning
 					outputTokens += (len(data.Content) + len(data.Reasoning)) / 4
@@ -1252,7 +1341,7 @@ func (s *ConversationService) BattleStream(req *dto.BattleRequest, userID int64,
 					return nil
 				})
 			} else {
-				streamErr = s.langchainAdapter.CallStreamWithHistory(ctx, langchainMessages, req.Prompt, realModelIdForDB, func(data llm.StreamData) error {
+				streamErr = s.langchainAdapter.CallStreamWithHistory(ctx, langchainMessages, req.Prompt, req.ImageUrls, realModelIdForDB, req.WebSearchEnabled, func(data llm.StreamData) error {
 					fullContent += data.Content
 					fullReasoning += data.Reasoning
 					outputTokens += (len(data.Content) + len(data.Reasoning)) / 4
@@ -1293,6 +1382,7 @@ func (s *ConversationService) BattleStream(req *dto.BattleRequest, userID int64,
 			cost := s.calculateCostByModel(realModelIdForDB, inputTokens, outputTokens)
 			codeBlocks := utils.ExtractCodeBlocks(fullContent)
 			hasCodeBlocks := len(codeBlocks) > 0
+			toolsUsedStr := buildToolsUsedJSON(req.WebSearchEnabled, req.Prompt, fullContent)
 			doneChunk := vo.StreamChunkVO{
 				ConversationID: conversationID,
 				ModelName:      anonLabelForStream,
@@ -1310,8 +1400,11 @@ func (s *ConversationService) BattleStream(req *dto.BattleRequest, userID int64,
 				Done:           true,
 				HasError:       false,
 			}
+			if toolsUsedStr != nil {
+				doneChunk.ToolsUsed = *toolsUsedStr
+			}
 			ch <- doneChunk
-			assistantMessage := s.createAssistantMessage(conversationID, userID, assistantMessageIndex, realModelIdForDB, fullContent, responseTimeMs, inputTokens, outputTokens)
+			assistantMessage := s.createAssistantMessage(conversationID, userID, assistantMessageIndex, effectiveModelForDB(realModelIdForDB, req.WebSearchEnabled), fullContent, responseTimeMs, inputTokens, outputTokens)
 			if fullReasoning != "" {
 				assistantMessage.Reasoning = fullReasoning
 			}
@@ -1320,6 +1413,7 @@ func (s *ConversationService) BattleStream(req *dto.BattleRequest, userID int64,
 				codeBlocksStr := string(codeBlocksData)
 				assistantMessage.CodeBlocks = &codeBlocksStr
 			}
+			assistantMessage.ToolsUsed = toolsUsedStr
 			if err := s.conversationMessageRepo.Create(assistantMessage); err != nil {
 				log.Printf("保存assistant消息失败: %v", err)
 			}

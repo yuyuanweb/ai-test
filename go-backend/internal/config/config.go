@@ -17,6 +17,17 @@ type Config struct {
 	OpenRouter OpenRouterConfig `mapstructure:"openrouter"`
 	RabbitMQ   RabbitMQConfig   `mapstructure:"rabbitmq"`
 	Log        LogConfig        `mapstructure:"log"`
+	Tencent    struct {
+		Cos TencentCosConfig `mapstructure:"cos"`
+	} `mapstructure:"tencent"`
+}
+
+type TencentCosConfig struct {
+	AccessKey string `mapstructure:"accessKey"`
+	SecretKey string `mapstructure:"secretKey"`
+	Region    string `mapstructure:"region"`
+	Bucket    string `mapstructure:"bucket"`
+	Host      string `mapstructure:"host"`
 }
 
 type ServerConfig struct {
