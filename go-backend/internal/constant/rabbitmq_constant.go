@@ -16,4 +16,8 @@ const (
 
 	TotalSubtasksThresholdHigh   = 10
 	TotalSubtasksThresholdNormal = 50
+
+	MaxSubTaskRetryCount   = 3
+	ProgressPushEveryN     = 10
+	SubTaskTimeoutSeconds   = 30
 )

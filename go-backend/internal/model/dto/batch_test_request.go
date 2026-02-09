@@ -24,6 +24,7 @@ type SubTaskMessage struct {
 	ModelName     string `json:"modelName"`
 	UserID        int64  `json:"userId"`
 	Config        string `json:"config"`
+	RetryCount    int    `json:"retryCount"`
 }
 
 type TaskQueryRequest struct {

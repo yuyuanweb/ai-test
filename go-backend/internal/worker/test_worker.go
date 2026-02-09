@@ -5,14 +5,18 @@ package worker
 import (
 	"ai-test-go/internal/config"
 	"ai-test-go/internal/constant"
+	"ai-test-go/internal/guardrail"
 	"ai-test-go/internal/model"
+	"ai-test-go/pkg/common"
 	"ai-test-go/internal/model/dto"
 	"ai-test-go/internal/model/vo"
 	"ai-test-go/internal/repository"
 	"ai-test-go/internal/service"
 	"ai-test-go/pkg/logger"
 	"ai-test-go/pkg/openrouter"
+	"ai-test-go/pkg/rabbitmq"
 	"ai-test-go/pkg/utils"
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -28,7 +32,8 @@ type TestWorker struct {
 	userModelUsageService *service.UserModelUsageService
 	progressService       *service.ProgressNotificationService
 	openRouterClient      *openrouter.Client
-	aiScoringService      *service.AIScoringService
+	aiScoringService      service.AIScoringService
+	rabbitMQClient        *rabbitmq.RabbitMQClient
 }
 
 func NewTestWorker(
@@ -39,7 +44,8 @@ func NewTestWorker(
 	userModelUsageService *service.UserModelUsageService,
 	progressService *service.ProgressNotificationService,
 	openRouterClient *openrouter.Client,
-	aiScoringService *service.AIScoringService,
+	aiScoringService service.AIScoringService,
+	rabbitMQClient *rabbitmq.RabbitMQClient,
 ) *TestWorker {
 	return &TestWorker{
 		testResultRepo:        testResultRepo,
@@ -50,6 +56,7 @@ func NewTestWorker(
 		progressService:       progressService,
 		openRouterClient:      openRouterClient,
 		aiScoringService:      aiScoringService,
+		rabbitMQClient:        rabbitMQClient,
 	}
 }
 
@@ -119,6 +126,35 @@ func (w *TestWorker) processSubTask(d amqp.Delivery) {
 		return
 	}
 
+	if err := guardrail.Validate(subTask.PromptContent); err != nil {
+		rejectMsg := "输入包含不当内容，请求被拒绝"
+		if bizErr, ok := err.(*common.BusinessException); ok {
+			rejectMsg = bizErr.Message
+			logger.Log.Warnf("Prompt护轨拒绝: taskId=%s, model=%s, reason=%s", subTask.TaskID, subTask.ModelName, bizErr.Message)
+		}
+		guardrailResult := &model.TestResult{
+			ID:             resultID,
+			TaskID:         subTask.TaskID,
+			UserID:         subTask.UserID,
+			SceneID:        subTask.SceneID,
+			PromptID:       subTask.PromptID,
+			ModelName:      subTask.ModelName,
+			InputPrompt:    subTask.PromptContent,
+			OutputText:     "[护轨拒绝] " + rejectMsg,
+			ResponseTimeMs: 0,
+			InputTokens:    0,
+			OutputTokens:   0,
+			Cost:           0,
+			AIScore:        "{}",
+			IsDelete:       0,
+		}
+		if createErr := w.testResultRepo.Create(guardrailResult); createErr == nil {
+			w.batchTestService.UpdateTaskProgress(subTask.TaskID)
+		}
+		d.Ack(false)
+		return
+	}
+
 	var configMap map[string]interface{}
 	if subTask.Config != "" {
 		json.Unmarshal([]byte(subTask.Config), &configMap)
@@ -141,12 +177,24 @@ func (w *TestWorker) processSubTask(d amqp.Delivery) {
 		req.MaxTokens = int(maxTokens)
 	}
 
-	resp, err := w.openRouterClient.Chat(req)
+	ctx, cancel := context.WithTimeout(context.Background(), constant.SubTaskTimeoutSeconds*time.Second)
+	defer cancel()
+
+	resp, err := w.openRouterClient.ChatWithContext(ctx, req)
 	if err != nil {
-		logger.Log.Errorf("调用OpenRouter失败: taskId=%s, model=%s, error=%v",
-			subTask.TaskID, subTask.ModelName, err)
-		w.batchTestService.MarkTaskFailed(subTask.TaskID)
-		d.Nack(false, true)
+		logger.Log.Errorf("调用OpenRouter失败: taskId=%s, model=%s, retryCount=%d, error=%v",
+			subTask.TaskID, subTask.ModelName, subTask.RetryCount, err)
+		if subTask.RetryCount < constant.MaxSubTaskRetryCount && w.rabbitMQClient != nil {
+			subTask.RetryCount++
+			priority := rabbitmq.CalculatePriority(task.TotalSubtasks)
+			if repubErr := w.rabbitMQClient.PublishMessage(context.Background(), subTask, priority); repubErr != nil {
+				logger.Log.Errorf("重试入队失败: taskId=%s, error=%v", subTask.TaskID, repubErr)
+				w.batchTestService.MarkTaskFailed(subTask.TaskID)
+			}
+		} else {
+			w.batchTestService.MarkTaskFailed(subTask.TaskID)
+		}
+		d.Ack(false)
 		return
 	}
 
@@ -205,8 +253,8 @@ func (w *TestWorker) processSubTask(d amqp.Delivery) {
 				subTask.TaskID, subTask.ModelName, subTask.PromptTitle, err)
 		} else {
 			aiScoreJSON, _ := json.Marshal(aiScoreResult)
-			if err := w.testResultRepo.UpdateByID(resultID, map[string]interface{}{"aiScore": string(aiScoreJSON)}); err != nil {
-				logger.Log.Warnf("更新测试结果AI评分失败: resultId=%s, error=%v", resultID, err)
+			if errUpdate := w.testResultRepo.UpdateByID(resultID, map[string]interface{}{"aiScore": string(aiScoreJSON)}); errUpdate != nil {
+				logger.Log.Warnf("更新测试结果AI评分失败: resultId=%s, error=%v", resultID, errUpdate)
 			} else {
 				logger.Log.Infof("AI评分已写入: taskId=%s, model=%s, judges=%d, averageRating=%.2f",
 					subTask.TaskID, subTask.ModelName, len(aiScoreResult.Judges), aiScoreResult.AverageRating)
@@ -225,16 +273,21 @@ func (w *TestWorker) processSubTask(d amqp.Delivery) {
 			percentage = (updatedTask.CompletedSubtasks * 100) / updatedTask.TotalSubtasks
 		}
 
-		w.progressService.SendProgress(subTask.TaskID, &vo.TaskProgressVO{
-			TaskID:            subTask.TaskID,
-			Percentage:        percentage,
-			CompletedSubtasks: updatedTask.CompletedSubtasks,
-			TotalSubtasks:     updatedTask.TotalSubtasks,
-			CurrentModel:      subTask.ModelName,
-			CurrentPrompt:     subTask.PromptTitle,
-			Status:            updatedTask.Status,
-			Timestamp:         time.Now().UnixMilli(),
-		})
+		shouldPush := updatedTask.Status == "completed" ||
+			updatedTask.CompletedSubtasks == 1 ||
+			(updatedTask.CompletedSubtasks%constant.ProgressPushEveryN == 0)
+		if shouldPush {
+			w.progressService.SendProgress(subTask.TaskID, &vo.TaskProgressVO{
+				TaskID:            subTask.TaskID,
+				Percentage:        percentage,
+				CompletedSubtasks: updatedTask.CompletedSubtasks,
+				TotalSubtasks:     updatedTask.TotalSubtasks,
+				CurrentModel:      subTask.ModelName,
+				CurrentPrompt:     subTask.PromptTitle,
+				Status:            updatedTask.Status,
+				Timestamp:         time.Now().UnixMilli(),
+			})
+		}
 	}
 
 	logger.Log.Infof("子任务完成: taskId=%s, model=%s, prompt=%s, responseTime=%dms, tokens=%d/%d, cost=$%.6f",

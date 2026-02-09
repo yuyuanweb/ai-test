@@ -3,6 +3,7 @@
 package handler
 
 import (
+	"ai-test-go/internal/middleware"
 	"ai-test-go/internal/model/dto"
 	"ai-test-go/internal/model/vo"
 	"ai-test-go/internal/service"
@@ -109,6 +110,11 @@ func (h *ConversationHandler) ChatStream(c *gin.Context) {
 
 	if err != nil {
 		log.Printf("对话流式调用失败: %v", err)
+		if bizErr, ok := err.(*common.BusinessException); ok {
+			middleware.WriteSseError(c, bizErr.Code, bizErr.Message)
+		} else {
+			middleware.WriteSseError(c, common.SYSTEM_ERROR, "系统内部异常")
+		}
 	}
 }
 
@@ -158,6 +164,11 @@ func (h *ConversationHandler) SideBySideStream(c *gin.Context) {
 
 	if err != nil {
 		log.Printf("Side-by-Side流式调用失败: %v", err)
+		if bizErr, ok := err.(*common.BusinessException); ok {
+			middleware.WriteSseError(c, bizErr.Code, bizErr.Message)
+		} else {
+			middleware.WriteSseError(c, common.SYSTEM_ERROR, "系统内部异常")
+		}
 	}
 }
 
@@ -207,6 +218,11 @@ func (h *ConversationHandler) PromptLabStream(c *gin.Context) {
 
 	if err != nil {
 		log.Printf("Prompt Lab流式调用失败: %v", err)
+		if bizErr, ok := err.(*common.BusinessException); ok {
+			middleware.WriteSseError(c, bizErr.Code, bizErr.Message)
+		} else {
+			middleware.WriteSseError(c, common.SYSTEM_ERROR, "系统内部异常")
+		}
 	}
 }
 
@@ -410,23 +426,11 @@ func (h *ConversationHandler) CodeModeStream(c *gin.Context) {
 	})
 
 	if err != nil {
+		log.Printf("代码模式流式调用失败: %v", err)
 		if bizErr, ok := err.(*common.BusinessException); ok {
-			errorData, _ := json.Marshal(map[string]interface{}{
-				"hasError": true,
-				"error":    bizErr.Message,
-				"done":     true,
-			})
-			fmt.Fprintf(c.Writer, "data: %s\n\n", errorData)
-			flusher.Flush()
+			middleware.WriteSseError(c, bizErr.Code, bizErr.Message)
 		} else {
-			log.Printf("代码模式流式调用失败: %v", err)
-			errorData, _ := json.Marshal(map[string]interface{}{
-				"hasError": true,
-				"error":    "系统内部异常",
-				"done":     true,
-			})
-			fmt.Fprintf(c.Writer, "data: %s\n\n", errorData)
-			flusher.Flush()
+			middleware.WriteSseError(c, common.SYSTEM_ERROR, "系统内部异常")
 		}
 	}
 }
@@ -474,23 +478,11 @@ func (h *ConversationHandler) CodeModePromptLabStream(c *gin.Context) {
 	})
 
 	if err != nil {
+		log.Printf("代码模式提示词实验室流式调用失败: %v", err)
 		if bizErr, ok := err.(*common.BusinessException); ok {
-			errorData, _ := json.Marshal(map[string]interface{}{
-				"hasError": true,
-				"error":    bizErr.Message,
-				"done":     true,
-			})
-			fmt.Fprintf(c.Writer, "data: %s\n\n", errorData)
-			flusher.Flush()
+			middleware.WriteSseError(c, bizErr.Code, bizErr.Message)
 		} else {
-			log.Printf("代码模式提示词实验室流式调用失败: %v", err)
-			errorData, _ := json.Marshal(map[string]interface{}{
-				"hasError": true,
-				"error":    "系统内部异常",
-				"done":     true,
-			})
-			fmt.Fprintf(c.Writer, "data: %s\n\n", errorData)
-			flusher.Flush()
+			middleware.WriteSseError(c, common.SYSTEM_ERROR, "系统内部异常")
 		}
 	}
 }

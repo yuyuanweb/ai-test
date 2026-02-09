@@ -86,7 +86,7 @@ func main() {
 	ratingService := service.NewRatingService(ratingRepo)
 	ratingHandler := handler.NewRatingHandler(ratingService)
 
-	modelService := service.NewModelService(modelRepo)
+	modelService := service.NewModelService(modelRepo, config.RedisClient)
 	modelHandler := handler.NewModelHandler(modelService)
 
 	sceneRepo := repository.NewSceneRepository(config.DB)
@@ -118,12 +118,12 @@ func main() {
 	stompHandler := handler.NewStompHandler(logger.Log)
 	progressService.SetStompHandler(stompHandler)
 
-	testWorker := worker.NewTestWorker(testResultRepo, testTaskRepo, batchTestService, modelService, userModelUsageService, progressService, openRouterClient, aiScoringService)
+	testWorker := worker.NewTestWorker(testResultRepo, testTaskRepo, batchTestService, modelService, userModelUsageService, progressService, openRouterClient, aiScoringService, rabbitMQClient)
 	if err := testWorker.Start(); err != nil {
 		logger.Log.Warnf("TestWorker启动失败: %v (批量测试功能不可用)", err)
 	}
 
-	syncModelJob := job.NewSyncModelJob(modelRepo)
+	syncModelJob := job.NewSyncModelJob(modelRepo, modelService)
 	syncModelJob.Start()
 
 	// 注册 SockJS handler（必须在 /api 之前，因为它需要处理 /api/ws/* 的所有请求）
@@ -157,11 +157,11 @@ func main() {
 		conversation := api.Group("/conversation")
 		{
 			conversation.POST("/create", middleware.AuthMiddleware(), conversationHandler.CreateConversation)
-			conversation.POST("/chat/stream", middleware.AuthMiddleware(), conversationHandler.ChatStream)
-			conversation.POST("/side-by-side/stream", middleware.AuthMiddleware(), conversationHandler.SideBySideStream)
-			conversation.POST("/prompt-lab/stream", middleware.AuthMiddleware(), conversationHandler.PromptLabStream)
-			conversation.POST("/code-mode/stream", middleware.AuthMiddleware(), conversationHandler.CodeModeStream)
-			conversation.POST("/code-mode/prompt-lab/stream", middleware.AuthMiddleware(), conversationHandler.CodeModePromptLabStream)
+			conversation.POST("/chat/stream", middleware.AuthMiddleware(), middleware.AIStreamRateLimit(), conversationHandler.ChatStream)
+			conversation.POST("/side-by-side/stream", middleware.AuthMiddleware(), middleware.AIStreamRateLimit(), conversationHandler.SideBySideStream)
+			conversation.POST("/prompt-lab/stream", middleware.AuthMiddleware(), middleware.AIStreamRateLimit(), conversationHandler.PromptLabStream)
+			conversation.POST("/code-mode/stream", middleware.AuthMiddleware(), middleware.AIStreamRateLimit(), conversationHandler.CodeModeStream)
+			conversation.POST("/code-mode/prompt-lab/stream", middleware.AuthMiddleware(), middleware.AIStreamRateLimit(), conversationHandler.CodeModePromptLabStream)
 			conversation.GET("/get", middleware.AuthMiddleware(), conversationHandler.GetConversation)
 			conversation.GET("/list", middleware.AuthMiddleware(), conversationHandler.ListConversations)
 			conversation.GET("/messages", middleware.AuthMiddleware(), conversationHandler.GetConversationMessages)
@@ -218,7 +218,7 @@ func main() {
 
 		batchTest := api.Group("/batch-test")
 		{
-			batchTest.POST("/create", middleware.AuthMiddleware(), batchTestHandler.CreateBatchTestTask)
+			batchTest.POST("/create", middleware.AuthMiddleware(), middleware.BatchCreateRateLimit(), batchTestHandler.CreateBatchTestTask)
 			batchTest.GET("/task/get", middleware.AuthMiddleware(), batchTestHandler.GetTask)
 			batchTest.POST("/task/list/page", middleware.AuthMiddleware(), batchTestHandler.ListTasks)
 			batchTest.POST("/task/delete", middleware.AuthMiddleware(), batchTestHandler.DeleteTask)
