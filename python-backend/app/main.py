@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from app.core.config import get_settings
 from app.core.errors import BusinessException
 from app.core.logging_config import logger
-from app.api import user, health, test, conversation, model, rating, scene, batch_test
+from app.api import user, health, test, conversation, model, rating, scene, batch_test, report
 from app.ws.router import router as ws_router
 from app.middleware.session_middleware import RedisSessionMiddleware
 from app.db.redis_session import RedisSessionBackend
@@ -95,6 +95,7 @@ app.include_router(model.router, prefix="/api")
 app.include_router(rating.router, prefix="/api")
 app.include_router(scene.router, prefix="/api")
 app.include_router(batch_test.router, prefix="/api")
+app.include_router(report.router, prefix="/api")
 app.include_router(ws_router, prefix="/api/ws")
 
 
