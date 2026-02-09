@@ -23,6 +23,23 @@ DEFAULT_INPUT_PRICE = Decimal("1")
 DEFAULT_OUTPUT_PRICE = Decimal("2")
 TOKENS_PER_MILLION = 1_000_000
 
+OPENROUTER_EXTRA_HEADERS = {
+    "HTTP-Referer": "https://codefather.cn",
+    "X-Title": "AI Evaluation Platform",
+}
+
+
+def _check_enable_ai_scoring(config: dict) -> bool:
+    """
+    检查任务是否启用 AI 评分（与 Java checkEnableAiScoring 一致）
+    """
+    enable = config.get("enableAiScoring")
+    if isinstance(enable, bool):
+        return enable
+    if isinstance(enable, str):
+        return enable.lower() in ("true", "1", "yes")
+    return False
+
 
 def run_subtask_sync(sub_task_data: dict) -> dict:
     """
@@ -128,6 +145,21 @@ def run_subtask_sync(sub_task_data: dict) -> dict:
             is_delete=0
         )
         session.add(test_result)
+
+        enable_ai_scoring = _check_enable_ai_scoring(config)
+        if enable_ai_scoring and output_text:
+            from app.services.ai_scoring_service import run_ai_scoring_sync
+            from app.schemas.evaluation import ai_score_result_to_json
+            ai_result = run_ai_scoring_sync(
+                sync_session=session,
+                openai_sync_client=client,
+                question=prompt_content,
+                model_response=output_text,
+                tested_model_name=model_name,
+                extra_headers=OPENROUTER_EXTRA_HEADERS,
+            )
+            if ai_result is not None:
+                test_result.ai_score = ai_score_result_to_json(ai_result)
 
         total_tokens = input_tokens + output_tokens
         session.execute(
