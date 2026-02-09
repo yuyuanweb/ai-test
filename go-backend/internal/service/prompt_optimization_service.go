@@ -52,15 +52,18 @@ const optimizationPromptTemplate = `你是一位专业的提示词工程专家�
 type PromptOptimizationService struct {
 	openRouterClient      *openrouter.Client
 	userModelUsageService *UserModelUsageService
+	budgetService         *BudgetService
 }
 
 func NewPromptOptimizationService(
 	openRouterClient *openrouter.Client,
 	userModelUsageService *UserModelUsageService,
+	budgetService *BudgetService,
 ) *PromptOptimizationService {
 	return &PromptOptimizationService{
 		openRouterClient:      openRouterClient,
 		userModelUsageService: userModelUsageService,
+		budgetService:         budgetService,
 	}
 }
 
@@ -120,6 +123,9 @@ func (s *PromptOptimizationService) OptimizePrompt(originalPrompt, aiResponse, e
 	if userID > 0 && resp.Usage.TotalTokens > 0 {
 		cost := s.estimateOptimizationCost(model, resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
 		s.userModelUsageService.UpdateUserModelUsage(userID, model, int64(resp.Usage.TotalTokens), cost)
+		if cost > 0 && s.budgetService != nil {
+			s.budgetService.AddCost(userID, cost)
+		}
 		logger.Log.Infof("提示词优化统计: userId=%d, model=%s, tokens=%d, cost=%.6f",
 			userID, model, resp.Usage.TotalTokens, cost)
 	}

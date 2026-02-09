@@ -28,6 +28,7 @@ type ConversationService struct {
 	conversationMessageRepo *repository.ConversationMessageRepository
 	langchainAdapter        *llm.LangChainAdapter
 	modelRepo               *repository.ModelRepository
+	budgetService           *BudgetService
 }
 
 func (s *ConversationService) createAssistantMessage(conversationID string, userID int64, messageIndex int, modelName, content string, responseTimeMs, inputTokens, outputTokens int) *model.ConversationMessage {
@@ -168,6 +169,7 @@ func NewConversationService(
 	conversationRepo *repository.ConversationRepository,
 	conversationMessageRepo *repository.ConversationMessageRepository,
 	modelRepo *repository.ModelRepository,
+	budgetService *BudgetService,
 ) *ConversationService {
 	adapter, err := llm.NewLangChainAdapter(
 		config.AppConfig.OpenRouter.APIKey,
@@ -182,6 +184,7 @@ func NewConversationService(
 		conversationMessageRepo: conversationMessageRepo,
 		langchainAdapter:        adapter,
 		modelRepo:               modelRepo,
+		budgetService:           budgetService,
 	}
 }
 
@@ -415,6 +418,8 @@ func (s *ConversationService) SideBySideStream(req *dto.SideBySideRequest, userI
 			assistantMessage.ToolsUsed = toolsUsedStr
 			if err := s.conversationMessageRepo.Create(assistantMessage); err != nil {
 				log.Printf("保存assistant消息失败: %v", err)
+			} else if assistantMessage.Cost > 0 && s.budgetService != nil {
+				s.budgetService.AddCost(assistantMessage.UserID, assistantMessage.Cost)
 			}
 		}(modelName)
 	}
@@ -590,6 +595,8 @@ func (s *ConversationService) PromptLabStream(req *dto.PromptLabRequest, userID 
 			assistantMessage.ToolsUsed = toolsUsedStr
 			if err := s.conversationMessageRepo.Create(assistantMessage); err != nil {
 				log.Printf("保存assistant消息失败: %v", err)
+			} else if assistantMessage.Cost > 0 && s.budgetService != nil {
+				s.budgetService.AddCost(assistantMessage.UserID, assistantMessage.Cost)
 			}
 		}(promptVariant, variantIndex)
 	}
@@ -736,6 +743,9 @@ func (s *ConversationService) ChatStream(req *dto.ChatRequest, userID int64, onC
 	if err := s.conversationMessageRepo.Create(assistantMessage); err != nil {
 		log.Printf("保存assistant消息失败: %v", err)
 		return err
+	}
+	if assistantMessage.Cost > 0 && s.budgetService != nil {
+		s.budgetService.AddCost(assistantMessage.UserID, assistantMessage.Cost)
 	}
 
 	return nil
@@ -959,6 +969,8 @@ func (s *ConversationService) CodeModeStream(req *dto.CodeModeRequest, userID in
 			assistantMessage.ToolsUsed = toolsUsedStr
 			if err := s.conversationMessageRepo.Create(assistantMessage); err != nil {
 				log.Printf("保存assistant消息失败: %v", err)
+			} else if assistantMessage.Cost > 0 && s.budgetService != nil {
+				s.budgetService.AddCost(assistantMessage.UserID, assistantMessage.Cost)
 			}
 		}(modelName)
 	}
@@ -1142,6 +1154,8 @@ func (s *ConversationService) CodeModePromptLabStream(req *dto.CodeModePromptLab
 			assistantMessage.ToolsUsed = toolsUsedStr
 			if err := s.conversationMessageRepo.Create(assistantMessage); err != nil {
 				log.Printf("保存assistant消息失败: %v", err)
+			} else if assistantMessage.Cost > 0 && s.budgetService != nil {
+				s.budgetService.AddCost(assistantMessage.UserID, assistantMessage.Cost)
 			}
 		}(promptVariant, variantIndex)
 	}
@@ -1416,6 +1430,8 @@ func (s *ConversationService) BattleStream(req *dto.BattleRequest, userID int64,
 			assistantMessage.ToolsUsed = toolsUsedStr
 			if err := s.conversationMessageRepo.Create(assistantMessage); err != nil {
 				log.Printf("保存assistant消息失败: %v", err)
+			} else if assistantMessage.Cost > 0 && s.budgetService != nil {
+				s.budgetService.AddCost(assistantMessage.UserID, assistantMessage.Cost)
 			}
 		}(realModelId, anonLabel)
 	}

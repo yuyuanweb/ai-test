@@ -73,14 +73,15 @@ func main() {
 	modelRepo := repository.NewModelRepository(config.DB)
 	userModelUsageRepo := repository.NewUserModelUsageRepository(config.DB)
 	userRepo := repository.NewUserRepository(config.DB)
-	userService := service.NewUserService(userRepo, conversationMessageRepo, userModelUsageRepo, modelRepo)
-	userHandler := handler.NewUserHandler(userService)
+	budgetService := service.NewBudgetService(config.RedisClient, userRepo, conversationMessageRepo)
+	userService := service.NewUserService(userRepo, conversationMessageRepo, userModelUsageRepo, modelRepo, budgetService)
+	userHandler := handler.NewUserHandler(userService, budgetService)
 
 	testService := service.NewTestService()
 	testHandler := handler.NewTestHandler(testService)
 
 	conversationRepo := repository.NewConversationRepository(config.DB)
-	conversationService := service.NewConversationService(conversationRepo, conversationMessageRepo, modelRepo)
+	conversationService := service.NewConversationService(conversationRepo, conversationMessageRepo, modelRepo, budgetService)
 	conversationHandler := handler.NewConversationHandler(conversationService)
 
 	ratingRepo := repository.NewRatingRepository(config.DB)
@@ -110,6 +111,9 @@ func main() {
 	reportService := service.NewReportService(testTaskRepo, testResultRepo)
 	reportHandler := handler.NewReportHandler(reportService)
 
+	statisticsService := service.NewStatisticsService(budgetService, conversationMessageRepo, userModelUsageRepo, userRepo, config.RedisClient)
+	statisticsHandler := handler.NewStatisticsHandler(statisticsService)
+
 	openRouterClient := openrouter.NewClient(config.AppConfig.OpenRouter.APIKey, config.AppConfig.OpenRouter.BaseURL)
 
 	var cosClient *cos.Client
@@ -131,17 +135,17 @@ func main() {
 	fileService := service.NewFileService(cosClient)
 	uploadHandler := handler.NewUploadHandler(fileService)
 
-	imageService := service.NewImageService(modelRepo, conversationRepo, conversationMessageRepo, fileService, modelService, userModelUsageService)
+	imageService := service.NewImageService(modelRepo, conversationRepo, conversationMessageRepo, fileService, modelService, userModelUsageService, budgetService)
 	imageHandler := handler.NewImageHandler(imageService)
 
-	aiScoringService := service.NewAIScoringService(openRouterClient, modelRepo, userModelUsageService)
-	promptOptimizationService := service.NewPromptOptimizationService(openRouterClient, userModelUsageService)
+	aiScoringService := service.NewAIScoringService(openRouterClient, modelRepo, userModelUsageService, budgetService)
+	promptOptimizationService := service.NewPromptOptimizationService(openRouterClient, userModelUsageService, budgetService)
 	promptOptimizationHandler := handler.NewPromptOptimizationHandler(promptOptimizationService)
 
 	stompHandler := handler.NewStompHandler(logger.Log)
 	progressService.SetStompHandler(stompHandler)
 
-	testWorker := worker.NewTestWorker(testResultRepo, testTaskRepo, batchTestService, modelService, userModelUsageService, progressService, openRouterClient, aiScoringService, rabbitMQClient)
+	testWorker := worker.NewTestWorker(testResultRepo, testTaskRepo, batchTestService, modelService, userModelUsageService, budgetService, progressService, openRouterClient, aiScoringService, rabbitMQClient)
 	if err := testWorker.Start(); err != nil {
 		logger.Log.Warnf("TestWorker启动失败: %v (批量测试功能不可用)", err)
 	}
@@ -167,8 +171,19 @@ func main() {
 			user.GET("/get/vo", userHandler.GetUserVOByID)
 			user.POST("/delete", middleware.AuthMiddleware(), middleware.AdminAuthMiddleware(), userHandler.DeleteUser)
 			user.POST("/update", middleware.AuthMiddleware(), middleware.AdminAuthMiddleware(), userHandler.UpdateUser)
+			user.POST("/update/my", middleware.AuthMiddleware(), userHandler.UpdateMyInfo)
 			user.POST("/list/page/vo", middleware.AuthMiddleware(), middleware.AdminAuthMiddleware(), userHandler.ListUserByPage)
 			user.GET("/statistics", middleware.AuthMiddleware(), userHandler.GetUserStatistics)
+			user.GET("/budget/status", middleware.AuthMiddleware(), userHandler.GetBudgetStatus)
+			user.POST("/budget/update", middleware.AuthMiddleware(), userHandler.UpdateBudget)
+		}
+
+		statistics := api.Group("/statistics")
+		{
+			statistics.GET("/cost", middleware.AuthMiddleware(), statisticsHandler.GetCostStatistics)
+			statistics.GET("/realtime", middleware.AuthMiddleware(), statisticsHandler.GetRealtimeCost)
+			statistics.GET("/usage", middleware.AuthMiddleware(), statisticsHandler.GetUsageStatistics)
+			statistics.GET("/performance", middleware.AuthMiddleware(), statisticsHandler.GetPerformanceStatistics)
 		}
 
 		test := api.Group("/test")

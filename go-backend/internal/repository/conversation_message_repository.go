@@ -80,3 +80,100 @@ func (r *ConversationMessageRepository) GetMonthCostByUserID(userID int64) (floa
 		Scan(&cost).Error
 	return cost, err
 }
+
+func (r *ConversationMessageRepository) GetWeekCostByUserID(userID int64) (float64, error) {
+	var cost float64
+	now := time.Now()
+	daysSinceMonday := int(now.Weekday() + 6) % 7
+	weekStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local).AddDate(0, 0, -daysSinceMonday)
+	err := r.db.Model(&model.ConversationMessage{}).
+		Where("userId = ? AND isDelete = 0 AND createTime >= ?", userID, weekStart).
+		Select("COALESCE(SUM(cost), 0)").
+		Scan(&cost).Error
+	return cost, err
+}
+
+func (r *ConversationMessageRepository) GetTodayApiCallsByUserID(userID int64) (int64, error) {
+	var count int64
+	today := time.Now().Format("2006-01-02")
+	err := r.db.Model(&model.ConversationMessage{}).
+		Where("userId = ? AND isDelete = 0 AND role = ? AND DATE(createTime) = ?", userID, "assistant", today).
+		Count(&count).Error
+	return count, err
+}
+
+func (r *ConversationMessageRepository) GetTodayTokensByUserID(userID int64) (int64, error) {
+	var total int64
+	today := time.Now().Format("2006-01-02")
+	err := r.db.Model(&model.ConversationMessage{}).
+		Where("userId = ? AND isDelete = 0 AND DATE(createTime) = ?", userID, today).
+		Select("COALESCE(SUM(COALESCE(inputTokens, 0) + COALESCE(outputTokens, 0)), 0)").
+		Scan(&total).Error
+	return total, err
+}
+
+type DailyCostRow struct {
+	Date  string  `gorm:"column:dt"`
+	Cost  float64 `gorm:"column:cost"`
+}
+
+func (r *ConversationMessageRepository) GetDailyCostsByUserIDAndDateRange(userID int64, start, end time.Time) ([]DailyCostRow, error) {
+	var rows []DailyCostRow
+	err := r.db.Model(&model.ConversationMessage{}).
+		Select("DATE(createTime) AS dt, COALESCE(SUM(cost), 0) AS cost").
+		Where("userId = ? AND isDelete = 0 AND createTime >= ? AND createTime < ?", userID, start, end).
+		Group("DATE(createTime)").
+		Order("dt ASC").
+		Scan(&rows).Error
+	return rows, err
+}
+
+func (r *ConversationMessageRepository) GetTotalApiCallsByUserID(userID int64) (int64, error) {
+	var count int64
+	err := r.db.Model(&model.ConversationMessage{}).
+		Where("userId = ? AND isDelete = 0 AND role = ?", userID, "assistant").
+		Count(&count).Error
+	return count, err
+}
+
+func (r *ConversationMessageRepository) GetTotalInputTokensByUserID(userID int64) (int64, error) {
+	var total int64
+	err := r.db.Model(&model.ConversationMessage{}).
+		Where("userId = ? AND isDelete = 0", userID).
+		Select("COALESCE(SUM(inputTokens), 0)").
+		Scan(&total).Error
+	return total, err
+}
+
+func (r *ConversationMessageRepository) GetTotalOutputTokensByUserID(userID int64) (int64, error) {
+	var total int64
+	err := r.db.Model(&model.ConversationMessage{}).
+		Where("userId = ? AND isDelete = 0", userID).
+		Select("COALESCE(SUM(outputTokens), 0)").
+		Scan(&total).Error
+	return total, err
+}
+
+type DailyUsageRow struct {
+	Date     string `gorm:"column:dt"`
+	ApiCalls int64  `gorm:"column:api_calls"`
+	Tokens   int64  `gorm:"column:tokens"`
+}
+
+func (r *ConversationMessageRepository) GetDailyUsageByUserIDAndDateRange(userID int64, start, end time.Time) ([]DailyUsageRow, error) {
+	var rows []DailyUsageRow
+	err := r.db.Model(&model.ConversationMessage{}).
+		Select("DATE(createTime) AS dt, COUNT(*) AS api_calls, COALESCE(SUM(COALESCE(inputTokens, 0) + COALESCE(outputTokens, 0)), 0) AS tokens").
+		Where("userId = ? AND isDelete = 0 AND role = ? AND createTime >= ? AND createTime < ?", userID, "assistant", start, end).
+		Group("DATE(createTime)").
+		Order("dt ASC").
+		Scan(&rows).Error
+	return rows, err
+}
+
+func (r *ConversationMessageRepository) ListAssistantMessagesByUserID(userID int64) ([]model.ConversationMessage, error) {
+	var messages []model.ConversationMessage
+	err := r.db.Where("userId = ? AND isDelete = 0 AND role = ?", userID, "assistant").
+		Find(&messages).Error
+	return messages, err
+}
