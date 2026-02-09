@@ -15,10 +15,12 @@ from app.schemas.conversation import (
     PromptLabRequest,
     CodeModeRequest,
     CodeModePromptLabRequest,
+    BattleRequest,
     DeleteConversationRequest,
     ConversationVO,
     ConversationQueryRequest,
-    ConversationMessageVO
+    ConversationMessageVO,
+    BattleModelMappingVO
 )
 from app.services.user_service import UserService
 from app.services.conversation_service import ConversationService
@@ -73,6 +75,36 @@ async def chat_stream(
     
     return StreamingResponse(
         conversation_service.chat_stream(request_data, login_user.id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@router.post("/battle/stream", summary="Battle匿名模型对比(流式)")
+async def battle_stream(
+    request_data: BattleRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Battle 匿名模型对比（流式响应）
+    模型匿名显示为模型A、模型B，适用于公平对比避免品牌偏见
+    """
+    await check_rate_limit(
+        _get_redis(http_request), http_request,
+        RateLimitType.USER, 5, 60,
+        message="AI 对话请求过于频繁，请稍后再试"
+    )
+    login_user = await UserService.get_login_user(db, http_request)
+
+    conversation_service = ConversationService(db, _get_redis(http_request))
+
+    return StreamingResponse(
+        conversation_service.battle_stream(request_data, login_user.id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -295,3 +327,24 @@ async def get_conversation_messages(
     )
     
     return BaseResponse(code=0, data=messages, message="ok")
+
+
+@router.get("/battle/mapping", response_model=BaseResponse[BattleModelMappingVO], summary="获取Battle模式模型映射关系（揭晓答案）")
+async def get_battle_model_mapping(
+    conversationId: str,
+    http_request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    获取 Battle 模式的模型映射关系（揭晓答案）
+    返回匿名标识到真实模型名称的映射
+    """
+    login_user = await UserService.get_login_user(db, http_request)
+
+    conversation_service = ConversationService(db, _get_redis(http_request))
+    mapping = await conversation_service.get_battle_model_mapping(
+        conversationId,
+        login_user.id
+    )
+
+    return BaseResponse(code=0, data=BattleModelMappingVO(mapping=mapping), message="ok")

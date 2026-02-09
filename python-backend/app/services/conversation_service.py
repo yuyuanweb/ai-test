@@ -4,6 +4,7 @@
 """
 import asyncio
 import json
+import random
 import uuid
 import time
 from typing import List, Optional, Dict, Any, AsyncGenerator
@@ -26,6 +27,7 @@ from app.schemas.conversation import (
     PromptLabRequest,
     CodeModeRequest,
     CodeModePromptLabRequest,
+    BattleRequest,
     StreamChunkVO,
     ConversationVO,
     ConversationMessageVO
@@ -444,6 +446,164 @@ class ConversationService:
 
         model_names = [request.model] * len(request.prompt_variants)
         async for event in self._merge_streams(tasks, model_names):
+            yield event
+
+    async def battle_stream(
+        self,
+        request: BattleRequest,
+        user_id: int
+    ) -> AsyncGenerator[str, None]:
+        """
+        Battle 匿名模型对比（SSE 流式响应）
+        对比的模型匿名显示为模型A、模型B，适用于公平对比避免品牌偏见
+        """
+        if not request.prompt or not request.prompt.strip():
+            raise BusinessException(ErrorCode.PARAMS_ERROR, "提示词不能为空")
+        validate_prompt(request.prompt)
+
+        has_images = request.image_urls and len(request.image_urls) > 0
+        if has_images:
+            logger.info("Battle请求包含 {} 张图片: {}", len(request.image_urls), request.image_urls)
+
+        models: List[str]
+        model_mapping: Dict[str, str]
+        conversation_id: str
+        code_preview_enabled: bool
+
+        if request.conversation_id and request.conversation_id.strip():
+            conv_result = await self.db.execute(
+                select(Conversation).where(
+                    and_(
+                        Conversation.id == request.conversation_id,
+                        Conversation.user_id == user_id,
+                        Conversation.is_delete == 0
+                    )
+                )
+            )
+            existing = conv_result.scalar_one_or_none()
+            if not existing:
+                raise BusinessException(ErrorCode.NOT_FOUND_ERROR, "对话不存在")
+            conversation_id = request.conversation_id
+            code_preview_enabled = existing.code_preview_enabled == 1
+
+            mapping_json = existing.model_mapping
+            if not mapping_json or (isinstance(mapping_json, str) and not mapping_json.strip()):
+                logger.error("Battle模式：对话 {} 的 modelMapping 为空", conversation_id)
+                raise BusinessException(ErrorCode.SYSTEM_ERROR, "对话的模型映射不存在")
+
+            model_mapping = json.loads(mapping_json) if isinstance(mapping_json, str) else mapping_json
+            models = list(model_mapping.values())
+            logger.info("Battle模式：使用已有对话的模型映射，conversationId={}, 模型映射={}", conversation_id, model_mapping)
+        else:
+            models = request.models
+            if not models or len(models) == 0:
+                models_result = await self.db.execute(
+                    select(Model)
+                    .where(Model.is_delete == 0)
+                    .order_by(Model.is_china.desc(), Model.recommended.desc(), Model.update_time.desc())
+                )
+                all_models = models_result.scalars().all()
+                if not all_models or len(all_models) < 2:
+                    raise BusinessException(ErrorCode.PARAMS_ERROR, "可用模型数量不足，无法进行Battle对比")
+
+                if has_images:
+                    multimodal = [m for m in all_models if m.supports_multimodal == 1]
+                    if len(multimodal) < 2:
+                        raise BusinessException(ErrorCode.PARAMS_ERROR, "支持多模态的模型数量不足，无法进行图片对比")
+                    all_models = multimodal
+                    logger.info("Battle模式：用户上传了图片，从{}个多模态模型中选择", len(all_models))
+
+                china_models = [m for m in all_models if m.is_china == 1]
+                if len(china_models) >= 2:
+                    selected = random.sample(china_models, 2)
+                    logger.info("Battle模式：从{}个国内模型中随机选择2个", len(china_models))
+                elif len(china_models) == 1:
+                    others = [m for m in all_models if m.id != china_models[0].id]
+                    if not others:
+                        raise BusinessException(ErrorCode.PARAMS_ERROR, "可用模型数量不足，无法进行Battle对比")
+                    selected = [china_models[0], random.choice(others)]
+                    logger.info("Battle模式：选择1个国内模型+1个其他模型")
+                else:
+                    selected = random.sample(all_models, 2)
+                    logger.warning("Battle模式：未找到国内模型，从所有模型中随机选择2个")
+
+                models = [m.id for m in selected]
+                logger.info("Battle模式：随机选择模型: {}", models)
+            elif len(models) < 2:
+                raise BusinessException(ErrorCode.PARAMS_ERROR, "Battle模式至少需要2个模型")
+            elif len(models) > 2:
+                models = models[:2]
+                logger.info("Battle模式：使用前2个模型: {}", models)
+
+            model_mapping = {"模型A": models[0], "模型B": models[1]}
+
+            conversation_id = str(uuid.uuid4())
+            code_preview_enabled = bool(request.code_preview_enabled)
+            conv = Conversation(
+                id=conversation_id,
+                user_id=user_id,
+                title=self._generate_title(request.prompt),
+                conversation_type="battle",
+                code_preview_enabled=1 if code_preview_enabled else 0,
+                is_anonymous=1,
+                model_mapping=json.dumps(model_mapping),
+                models=json.dumps(models),
+                total_tokens=0,
+                total_cost=Decimal('0'),
+                is_delete=0
+            )
+            self.db.add(conv)
+            await self.db.commit()
+            logger.info("Battle模式：创建新对话，conversationId={}, 模型映射={}, codePreviewEnabled={}",
+                        conversation_id, model_mapping, code_preview_enabled)
+
+        user_message_index = await self._save_user_message(
+            conversation_id,
+            user_id,
+            request.prompt,
+            request.image_urls
+        )
+        assistant_message_index = user_message_index + 1
+        logger.info("Battle模式：conversationId={}, codePreviewEnabled={}", conversation_id, code_preview_enabled)
+
+        reverse_mapping = {v: k for k, v in model_mapping.items()}
+        tasks = []
+        for i, real_model in enumerate(models):
+            anonymous_name = "模型A" if i == 0 else "模型B"
+            system_prompt = CODE_MODE_SYSTEM_PROMPT if code_preview_enabled else None
+            task = self._stream_single_model(
+                conversation_id,
+                user_id,
+                real_model,
+                request.prompt,
+                assistant_message_index,
+                None,
+                request.image_urls,
+                request.web_search_enabled or False,
+                system_prompt
+            )
+            tasks.append((task, anonymous_name, real_model))
+
+        async def transform_battle_stream():
+            merged = self._merge_streams([t[0] for t in tasks], [t[2] for t in tasks])
+            async for event in merged:
+                if event.startswith("data: "):
+                    try:
+                        data_str = event[6:].strip()
+                        if data_str and data_str != "[DONE]":
+                            chunk_dict = json.loads(data_str)
+                            raw_model = chunk_dict.get("modelName")
+                            if raw_model and raw_model in reverse_mapping:
+                                chunk_dict["modelName"] = reverse_mapping[raw_model]
+                            yield f"data: {json.dumps(chunk_dict, ensure_ascii=False)}\n\n"
+                        else:
+                            yield event
+                    except (json.JSONDecodeError, TypeError):
+                        yield event
+                else:
+                    yield event
+
+        async for event in transform_battle_stream():
             yield event
 
     def _validate_code_mode_request(self, request: CodeModeRequest):
@@ -1143,6 +1303,74 @@ class ConversationService:
             conversation.model_mapping = json.loads(conversation.model_mapping)
         
         return ConversationVO.model_validate(conversation)
+
+    async def get_battle_model_mapping(
+        self,
+        conversation_id: str,
+        user_id: int
+    ) -> Dict[str, str]:
+        """
+        获取 Battle 模式的模型映射关系（揭晓答案）
+        匿名标识 -> 真实模型名称
+        """
+        conv_result = await self.db.execute(
+            select(Conversation).where(
+                and_(
+                    Conversation.id == conversation_id,
+                    Conversation.user_id == user_id,
+                    Conversation.is_delete == 0
+                )
+            )
+        )
+        conversation = conv_result.scalar_one_or_none()
+        if not conversation:
+            raise BusinessException(ErrorCode.NOT_FOUND_ERROR, "对话不存在")
+
+        is_anonymous = conversation.is_anonymous == 1
+        conv_type = conversation.conversation_type or ""
+        is_battle = is_anonymous or conv_type == "battle"
+        if not is_battle:
+            raise BusinessException(ErrorCode.PARAMS_ERROR, "该对话不是Battle模式")
+
+        mapping = None
+        mapping_json = conversation.model_mapping
+        if mapping_json and (isinstance(mapping_json, str) and mapping_json.strip() or not isinstance(mapping_json, str)):
+            mapping = json.loads(mapping_json) if isinstance(mapping_json, str) else mapping_json
+
+        if not mapping:
+            logger.warning("Battle模式对话的modelMapping为空，尝试恢复映射关系，conversationId={}", conversation_id)
+            models_json = conversation.models
+            if models_json:
+                try:
+                    models_list = json.loads(models_json) if isinstance(models_json, str) else models_json
+                    if models_list and len(models_list) >= 2:
+                        mapping = {"模型A": models_list[0], "模型B": models_list[1]}
+                        logger.info("从models字段恢复映射关系: {}", mapping)
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning("从models字段恢复映射关系失败", exc_info=e)
+
+            if not mapping:
+                msg_result = await self.db.execute(
+                    select(ConversationMessage).where(
+                        and_(
+                            ConversationMessage.conversation_id == conversation_id,
+                            ConversationMessage.is_delete == 0,
+                            ConversationMessage.role == "assistant"
+                        )
+                    )
+                )
+                messages = msg_result.scalars().all()
+                model_names = list({m.model_name for m in messages if m.model_name and m.model_name.strip()})
+                if len(model_names) >= 2:
+                    mapping = {"模型A": model_names[0], "模型B": model_names[1]}
+                    logger.info("从消息记录恢复映射关系: {}", mapping)
+                    conversation.model_mapping = json.dumps(mapping)
+                    await self.db.commit()
+
+        if not mapping:
+            raise BusinessException(ErrorCode.SYSTEM_ERROR, "模型映射关系不存在，且无法从对话数据中恢复")
+
+        return mapping
     
     async def delete_conversation(
         self,
