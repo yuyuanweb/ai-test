@@ -9,16 +9,16 @@ from decimal import Decimal
 
 
 class ModelQueryRequest(BaseModel):
-    """模型查询请求"""
+    """模型查询请求（与 Java ModelQueryRequest / 前端 ModelQueryRequest 一致）"""
     current: int = Field(default=1, description="当前页码", ge=1)
+    page_num: Optional[int] = Field(None, description="当前页码（前端传 pageNum 时用）", ge=1, alias="pageNum")
     page_size: int = Field(default=10, description="每页大小", ge=1, le=100, alias="pageSize")
     search_text: Optional[str] = Field(None, description="搜索关键词", alias="searchText")
     provider: Optional[str] = Field(None, description="提供商筛选")
-    is_china: Optional[bool] = Field(None, description="是否国内模型", alias="isChina")
-    recommended: Optional[bool] = Field(None, description="是否推荐")
-    supports_multimodal: Optional[bool] = Field(None, description="是否支持多模态", alias="supportsMultimodal")
-    supports_image_gen: Optional[bool] = Field(None, description="是否支持图片生成", alias="supportsImageGen")
-    supports_tool_calling: Optional[bool] = Field(None, description="是否支持工具调用", alias="supportsToolCalling")
+    only_china: Optional[bool] = Field(None, description="是否只查国内模型", alias="onlyChina")
+    only_recommended: Optional[bool] = Field(None, description="是否只查推荐模型", alias="onlyRecommended")
+    only_supports_image_gen: Optional[bool] = Field(None, description="是否只查支持图片生成的模型", alias="onlySupportsImageGen")
+    only_supports_multimodal: Optional[bool] = Field(None, description="是否只查支持多模态的模型", alias="onlySupportsMultimodal")
 
     class Config:
         populate_by_name = True

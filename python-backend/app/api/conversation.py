@@ -2,6 +2,7 @@
 对话接口
 @author <a href="https://codefather.cn">编程导航学习圈</a>
 """
+from typing import Optional
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -311,22 +312,22 @@ async def list_conversations(
 
 @router.get("/messages", response_model=BaseResponse[list], summary="获取对话消息列表")
 async def get_conversation_messages(
-    conversationId: str,
     http_request: Request,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    conversationId: Optional[str] = None,
+    conversation_id: Optional[str] = None,
 ):
     """
-    获取对话消息列表
+    获取对话消息列表。查询参数支持 conversationId 或 conversation_id。
     """
+    cid = conversationId or conversation_id
+    if not cid or not cid.strip():
+        from app.core.errors import BusinessException, ErrorCode
+        raise BusinessException(ErrorCode.PARAMS_ERROR, "conversationId 不能为空")
     login_user = await UserService.get_login_user(db, http_request)
-    
     conversation_service = ConversationService(db, _get_redis(http_request))
-    messages = await conversation_service.get_conversation_messages(
-        conversationId,
-        login_user.id
-    )
-    
-    return BaseResponse(code=0, data=messages, message="ok")
+    messages = await conversation_service.get_conversation_messages(cid.strip(), login_user.id)
+    return BaseResponse(code=0, data=messages if messages is not None else [], message="ok")
 
 
 @router.get("/battle/mapping", response_model=BaseResponse[BattleModelMappingVO], summary="获取Battle模式模型映射关系（揭晓答案）")

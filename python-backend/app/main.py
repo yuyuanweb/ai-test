@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from app.core.config import get_settings
 from app.core.errors import BusinessException
 from app.core.logging_config import logger
-from app.api import user, health, test, conversation, model, rating, scene, batch_test, report, prompt_template, prompt_optimization
+from app.api import user, health, test, conversation, model, rating, scene, batch_test, report, prompt_template, prompt_optimization, file, upload, image
 from app.ws.router import router as ws_router
 from app.middleware.session_middleware import RedisSessionMiddleware
 from app.db.redis_session import RedisSessionBackend
@@ -113,9 +113,13 @@ async def business_exception_handler(request: Request, exc: BusinessException):
     """
     业务异常处理器，对 SSE 请求返回 business-error 事件
     """
-    logger.error("BusinessException: code=%s, detail=%s", exc.code, exc.detail)
+    detail_str = str(exc.detail)
+    if "未配置" in detail_str:
+        logger.warning("BusinessException: code={}, detail={}", exc.code, detail_str)
+    else:
+        logger.error("BusinessException: code={}, detail={}", exc.code, detail_str)
     if _is_sse_request(request):
-        return _build_sse_error_response(exc.code, str(exc.detail))
+        return _build_sse_error_response(exc.code, detail_str)
     return JSONResponse(status_code=200, content=exc.to_dict())
 
 
@@ -130,6 +134,9 @@ app.include_router(batch_test.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
 app.include_router(prompt_template.router, prefix="/api")
 app.include_router(prompt_optimization.router, prefix="/api")
+app.include_router(file.router, prefix="/api")
+app.include_router(upload.router, prefix="/api/upload")
+app.include_router(image.router, prefix="/api")
 app.include_router(ws_router, prefix="/api/ws")
 
 
