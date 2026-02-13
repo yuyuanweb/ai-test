@@ -5,6 +5,7 @@
 import asyncio
 import json
 import random
+import re
 import uuid
 import time
 from typing import List, Optional, Dict, Any, AsyncGenerator
@@ -45,6 +46,34 @@ MIN_PROMPT_VARIANTS_COUNT = 2
 MAX_PROMPT_VARIANTS_COUNT = 5
 MIN_MODELS_COUNT = 1
 MAX_MODELS_COUNT = 8
+
+MAX_WEB_SOURCES = 20
+URL_PATTERN = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
+
+
+def _build_web_search_tools_used(
+    web_search_enabled: bool,
+    query: str,
+    full_content: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    """构建联网搜索 toolsUsed（与前端 parseToolsUsed 一致：webSearch.enabled/query/sources）。"""
+    if not web_search_enabled:
+        return None
+    urls: List[str] = []
+    if full_content:
+        for m in URL_PATTERN.finditer(full_content):
+            urls.append(m.group())
+            if len(urls) >= MAX_WEB_SOURCES:
+                break
+    return {
+        "webSearch": {
+            "enabled": True,
+            "query": query or "",
+            "engine": "auto",
+            "sources": [{"url": u} for u in urls]
+        }
+    }
+
 
 CODE_MODE_SYSTEM_PROMPT = """
 你是一个专业的前端开发专家。用户会向你描述想要创建的网站或应用，你需要生成完整的HTML代码。
@@ -802,7 +831,7 @@ class ConversationService:
                     messages.append({"role": "user", "content": content_parts})
                     logger.info(f"📝 替换当前用户prompt（使用传入的imageUrls）: prompt={prompt}, imageUrls={image_urls}")
                 else:
-                    logger.info(f"⏭️ 跳过添加当前prompt（历史消息中已包含，且无新图片）: prompt={prompt}")
+                    messages.append({"role": "user", "content": prompt})
 
             if system_prompt and system_prompt.strip():
                 messages = [{"role": "system", "content": system_prompt.strip()}] + messages
@@ -945,6 +974,8 @@ class ConversationService:
                     logger.info("从响应中提取到 {} 个代码块", len(code_blocks_list))
 
             code_blocks_json = json.dumps(code_blocks_list, ensure_ascii=False) if code_blocks_list else None
+            tools_used_obj = _build_web_search_tools_used(web_search_enabled, prompt, accumulated_content)
+            tools_used_json = json.dumps(tools_used_obj, ensure_ascii=False) if tools_used_obj else None
 
             async with AsyncSessionLocal() as independent_db:
                 await self._save_assistant_message(
@@ -960,7 +991,8 @@ class ConversationService:
                     cost,
                     response_time_ms,
                     accumulated_reasoning if accumulated_reasoning else None,
-                    code_blocks_json
+                    code_blocks_json,
+                    tools_used=tools_used_obj
                 )
                 
                 await self._update_conversation_stats(
@@ -987,7 +1019,8 @@ class ConversationService:
                 has_reasoning=bool(accumulated_reasoning),
                 thinking_time=thinking_time,
                 code_blocks=code_blocks_list if code_blocks_list else None,
-                has_code_blocks=bool(code_blocks_list)
+                has_code_blocks=bool(code_blocks_list),
+                tools_used=tools_used_json
             )
             
             done_message = f"data: {done_vo.model_dump_json(by_alias=True, exclude_none=True)}\n\n"
@@ -1147,7 +1180,8 @@ class ConversationService:
         cost: Decimal,
         response_time_ms: int,
         reasoning: Optional[str] = None,
-        code_blocks: Optional[str] = None
+        code_blocks: Optional[str] = None,
+        tools_used: Optional[Dict[str, Any]] = None
     ):
         """
         保存AI助手消息
@@ -1167,6 +1201,7 @@ class ConversationService:
             output_tokens=output_tokens,
             cost=cost,
             response_time_ms=response_time_ms,
+            tools_used=tools_used,
             is_delete=0
         )
         
@@ -1493,9 +1528,27 @@ class ConversationService:
         
         message_list = []
         for msg in messages:
-            images = json.loads(msg.images) if isinstance(msg.images, str) and msg.images and msg.images != 'null' else None
-            tools_used = json.loads(msg.tools_used) if isinstance(msg.tools_used, str) and msg.tools_used else None
-            
+            if msg.images is None:
+                images_val = None
+            elif isinstance(msg.images, list):
+                images_val = msg.images
+            elif isinstance(msg.images, str) and msg.images.strip() and msg.images != "null":
+                try:
+                    images_val = json.loads(msg.images)
+                except Exception:
+                    images_val = None
+            else:
+                images_val = None
+            images_str = json.dumps(images_val, ensure_ascii=False) if images_val is not None else None
+            if msg.tools_used is None:
+                tools_used_str = None
+            elif isinstance(msg.tools_used, dict):
+                tools_used_str = json.dumps(msg.tools_used, ensure_ascii=False)
+            elif isinstance(msg.tools_used, str) and msg.tools_used.strip():
+                tools_used_str = msg.tools_used
+            else:
+                tools_used_str = None
+
             message_list.append({
                 "id": msg.id,
                 "conversationId": msg.conversation_id,
@@ -1505,8 +1558,8 @@ class ConversationService:
                 "modelName": msg.model_name,
                 "variantIndex": msg.variant_index,
                 "content": msg.content,
-                "images": images,
-                "toolsUsed": tools_used,
+                "images": images_str,
+                "toolsUsed": tools_used_str,
                 "responseTimeMs": msg.response_time_ms,
                 "inputTokens": msg.input_tokens,
                 "outputTokens": msg.output_tokens,

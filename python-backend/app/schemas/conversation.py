@@ -167,7 +167,7 @@ class ConversationMessageVO(BaseModel):
     variant_index: Optional[int] = Field(None, alias="variantIndex")
     content: str
     images: Optional[List[str]]
-    tools_used: Optional[Dict[str, Any]] = Field(None, alias="toolsUsed")
+    tools_used: Optional[str] = Field(None, description="工具调用信息（JSON 字符串，与前端 parseToolsUsed 一致）", alias="toolsUsed")
     response_time_ms: Optional[int] = Field(None, alias="responseTimeMs")
     input_tokens: Optional[int] = Field(None, alias="inputTokens")
     output_tokens: Optional[int] = Field(None, alias="outputTokens")

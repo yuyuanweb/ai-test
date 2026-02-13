@@ -33,13 +33,13 @@ async def list_models_post(
     
     model_service = ModelService(db)
     models, total = await model_service.list_models(query_request, user_id)
-    
+    current = query_request.page_num if query_request.page_num is not None else query_request.current
     return BaseResponse(
         code=0,
         data={
             "records": models,
             "total": total,
-            "current": query_request.current,
+            "current": current,
             "pageSize": query_request.page_size
         },
         message="ok"

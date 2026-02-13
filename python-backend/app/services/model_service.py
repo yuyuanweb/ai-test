@@ -55,26 +55,14 @@ class ModelService:
         if query_request.provider:
             query = query.where(Model.provider == query_request.provider)
         
-        if query_request.is_china is not None:
-            query = query.where(Model.is_china == (1 if query_request.is_china else 0))
-        
-        if query_request.recommended is not None:
-            query = query.where(Model.recommended == (1 if query_request.recommended else 0))
-        
-        if query_request.supports_multimodal is not None:
-            query = query.where(
-                Model.supports_multimodal == (1 if query_request.supports_multimodal else 0)
-            )
-        
-        if query_request.supports_image_gen is not None:
-            query = query.where(
-                Model.supports_image_gen == (1 if query_request.supports_image_gen else 0)
-            )
-        
-        if query_request.supports_tool_calling is not None:
-            query = query.where(
-                Model.supports_tool_calling == (1 if query_request.supports_tool_calling else 0)
-            )
+        if query_request.only_china is True:
+            query = query.where(Model.is_china == 1)
+        if query_request.only_recommended is True:
+            query = query.where(Model.recommended == 1)
+        if query_request.only_supports_multimodal is True:
+            query = query.where(Model.supports_multimodal == 1)
+        if query_request.only_supports_image_gen is True:
+            query = query.where(Model.supports_image_gen == 1)
         
         count_result = await self.db.execute(
             select(func.count()).select_from(query.subquery())
@@ -87,7 +75,8 @@ class ModelService:
             Model.update_time.desc()
         )
         
-        offset = (query_request.current - 1) * query_request.page_size
+        current = query_request.page_num if query_request.page_num is not None else query_request.current
+        offset = (current - 1) * query_request.page_size
         query = query.offset(offset).limit(query_request.page_size)
         
         result = await self.db.execute(query)
@@ -119,6 +108,15 @@ class ModelService:
         models = result.scalars().all()
         
         return [ModelVO.model_validate(model) for model in models]
+
+    async def get_model_by_id(self, model_id: str):
+        """根据模型 ID 查询单条（未删除）。"""
+        if not model_id or not model_id.strip():
+            return None
+        result = await self.db.execute(
+            select(Model).where(Model.id == model_id, Model.is_delete == 0)
+        )
+        return result.scalar_one_or_none()
     
     async def sync_models_from_openrouter(self) -> int:
         """
