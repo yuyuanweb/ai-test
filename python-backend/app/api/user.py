@@ -12,13 +12,22 @@ from app.schemas.user import (
     UserLoginRequest,
     UserAddRequest,
     UserUpdateRequest,
+    UserUpdateMyRequest,
     UserQueryRequest,
     LoginUserVO,
     UserVO,
     UserStatisticsVO
 )
+from app.schemas.budget import BudgetStatusVO, BudgetUpdateRequest
 from app.schemas.common import DeleteRequest, PageRequest
 from app.services.user_service import UserService
+from app.services.budget_service import check_budget
+
+
+def _get_redis(request: Request):
+    if request is None:
+        return None
+    return getattr(request.app.state, "redis_client", None)
 
 router = APIRouter(prefix="/user", tags=["用户接口"])
 
@@ -85,6 +94,65 @@ async def get_user_statistics(
     user = await UserService.get_login_user(db, request)
     statistics = await UserService.get_user_statistics(db, user.id)
     return BaseResponse(code=0, data=statistics, message="ok")
+
+
+@router.get("/budget/status", response_model=BaseResponse[BudgetStatusVO], summary="获取预算状态")
+async def get_budget_status(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    获取当前用户预算状态（今日/本月消耗、预警等）
+    需要登录
+    """
+    user = await UserService.get_login_user(db, request)
+    budget_status = await check_budget(db, _get_redis(request), user.id)
+    return BaseResponse(code=0, data=budget_status, message="ok")
+
+
+@router.post("/update/my", response_model=BaseResponse[bool], summary="更新当前登录用户信息")
+async def update_my_info(
+    body: UserUpdateMyRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    更新当前登录用户信息（昵称、头像、简介、预算设置）
+    需要登录
+    """
+    user = await UserService.get_login_user(db, request)
+    await UserService.update_my_info(
+        db,
+        user.id,
+        user_name=body.user_name,
+        user_avatar=body.user_avatar,
+        user_profile=body.user_profile,
+        daily_budget=body.daily_budget,
+        monthly_budget=body.monthly_budget,
+        budget_alert_threshold=body.budget_alert_threshold
+    )
+    return BaseResponse(code=0, data=True, message="ok")
+
+
+@router.post("/budget/update", response_model=BaseResponse[bool], summary="更新预算设置")
+async def update_budget(
+    body: BudgetUpdateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    更新当前用户预算设置（日预算、月预算、预警阈值）
+    需要登录
+    """
+    user = await UserService.get_login_user(db, request)
+    await UserService.update_budget(
+        db,
+        user.id,
+        daily_budget=body.daily_budget,
+        monthly_budget=body.monthly_budget,
+        alert_threshold=body.alert_threshold
+    )
+    return BaseResponse(code=0, data=True, message="ok")
 
 
 @router.get("/get/login", response_model=BaseResponse[LoginUserVO], summary="获取当前登录用户")

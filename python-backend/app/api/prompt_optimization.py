@@ -16,6 +16,10 @@ router = APIRouter(prefix="/prompt/optimization", tags=["提示词优化接口"]
 _optimization_service: PromptOptimizationService | None = None
 
 
+def _get_redis(request: Request):
+    return getattr(request.app.state, "redis_client", None)
+
+
 def get_optimization_service() -> PromptOptimizationService:
     """
     获取提示词优化服务单例
@@ -55,5 +59,7 @@ async def optimize_prompt(
         ai_response=request_body.ai_response,
         evaluation_model=request_body.evaluation_model,
         user_id=user.id,
+        db=db,
+        redis_client=_get_redis(request),
     )
     return BaseResponse(code=0, data=result.model_dump(by_alias=True), message="ok")

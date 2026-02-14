@@ -39,6 +39,8 @@ from app.core.errors import BusinessException, ErrorCode
 from app.core.config import get_settings
 from app.utils.cost_calculator import CostCalculator
 from app.utils.model_pricing_cache import get_model_pricing_cached_async
+from app.services.budget_service import add_cost_async, check_budget
+from app.services.user_model_usage_service import update_user_model_usage
 
 settings = get_settings()
 
@@ -1001,6 +1003,18 @@ class ConversationService:
                     input_tokens + output_tokens,
                     cost
                 )
+                if cost and cost > 0:
+                    await add_cost_async(self.redis_client, user_id, cost)
+                    await update_user_model_usage(
+                        independent_db,
+                        user_id,
+                        model_name,
+                        input_tokens + output_tokens,
+                        cost
+                    )
+                budget_status_vo = await check_budget(
+                    independent_db, self.redis_client, user_id
+                )
             
             done_vo = StreamChunkVO(
                 conversation_id=conversation_id,
@@ -1020,7 +1034,12 @@ class ConversationService:
                 thinking_time=thinking_time,
                 code_blocks=code_blocks_list if code_blocks_list else None,
                 has_code_blocks=bool(code_blocks_list),
-                tools_used=tools_used_json
+                tools_used=tools_used_json,
+                budget_status=budget_status_vo.status if budget_status_vo else None,
+                budget_message=budget_status_vo.message if budget_status_vo else None,
+                today_cost=float(budget_status_vo.today_cost) if budget_status_vo and budget_status_vo.today_cost else None,
+                daily_budget=float(budget_status_vo.daily_budget) if budget_status_vo and budget_status_vo.daily_budget else None,
+                daily_usage_percent=float(budget_status_vo.daily_usage_percent) if budget_status_vo and budget_status_vo.daily_usage_percent else None
             )
             
             done_message = f"data: {done_vo.model_dump_json(by_alias=True, exclude_none=True)}\n\n"

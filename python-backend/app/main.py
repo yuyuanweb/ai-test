@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from app.core.config import get_settings
 from app.core.errors import BusinessException
 from app.core.logging_config import logger
-from app.api import user, health, test, conversation, model, rating, scene, batch_test, report, prompt_template, prompt_optimization, file, upload, image
+from app.api import user, health, test, conversation, model, rating, scene, batch_test, report, prompt_template, prompt_optimization, file, upload, image, statistics
 from app.ws.router import router as ws_router
 from app.middleware.session_middleware import RedisSessionMiddleware
 from app.db.redis_session import RedisSessionBackend
@@ -137,6 +137,7 @@ app.include_router(prompt_optimization.router, prefix="/api")
 app.include_router(file.router, prefix="/api")
 app.include_router(upload.router, prefix="/api/upload")
 app.include_router(image.router, prefix="/api")
+app.include_router(statistics.router, prefix="/api")
 app.include_router(ws_router, prefix="/api/ws")
 
 

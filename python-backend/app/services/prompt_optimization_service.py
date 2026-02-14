@@ -4,15 +4,22 @@
 """
 import json
 import re
-from typing import List, Optional
+from decimal import Decimal
+from typing import List, Optional, Any
 
 from openai import AsyncOpenAI
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.errors import BusinessException, ErrorCode
 from app.utils.ai_retry_helper import run_with_retry_async
+from app.utils.cost_calculator import CostCalculator
+from app.utils.model_pricing_cache import get_model_pricing_cached_async
 from app.core.logging_config import logger
+from app.models.model import Model
 from app.schemas.prompt import PromptOptimizationVO
+from app.services.budget_service import add_cost_async
+from app.services.user_model_usage_service import update_user_model_usage
 
 DEFAULT_EVALUATION_MODEL = "qwen/qwen-plus"
 
@@ -105,6 +112,8 @@ class PromptOptimizationService:
         ai_response: Optional[str] = None,
         evaluation_model: Optional[str] = None,
         user_id: Optional[int] = None,
+        db: Optional[AsyncSession] = None,
+        redis_client: Any = None,
     ) -> PromptOptimizationVO:
         """
         分析并优化提示词
@@ -157,15 +166,45 @@ class PromptOptimizationService:
 
             issues, optimized_prompt, improvements = _parse_optimization_suggestion(content)
 
-            total_tokens = 0
-            if resp.usage:
-                total_tokens = (resp.usage.prompt_tokens or 0) + (resp.usage.completion_tokens or 0)
+            prompt_tokens = (resp.usage.prompt_tokens or 0) if resp.usage else 0
+            completion_tokens = (resp.usage.completion_tokens or 0) if resp.usage else 0
+            total_tokens = prompt_tokens + completion_tokens
+            cost = Decimal("0")
+            if total_tokens > 0 and user_id and db and redis_client:
+                async def _fetch_pricing():
+                    from sqlalchemy import select
+                    r = await db.execute(
+                        select(Model).where(Model.id == model, Model.is_delete == 0)
+                    )
+                    m = r.scalar_one_or_none()
+                    if m:
+                        return (m.input_price, m.output_price)
+                    return (None, None)
+                input_price, output_price = await get_model_pricing_cached_async(
+                    redis_client, model, _fetch_pricing
+                )
+                if input_price is not None and output_price is not None:
+                    cost = CostCalculator.calculate_cost(
+                        model, prompt_tokens, completion_tokens, input_price, output_price
+                    )
+                else:
+                    cost = (
+                        (Decimal(str(prompt_tokens)) / Decimal("1000000")) * Decimal("1")
+                        + (Decimal(str(completion_tokens)) / Decimal("1000000")) * Decimal("2")
+                    ).quantize(Decimal("0.000001"))
+                if cost and cost > 0:
+                    try:
+                        await add_cost_async(redis_client, user_id, cost)
+                        await update_user_model_usage(db, user_id, model, total_tokens, cost)
+                    except Exception as e:
+                        logger.warning("提示词优化成本追踪失败: userId=%s, error=%s", user_id, str(e))
             if user_id and total_tokens > 0:
                 logger.info(
-                    "提示词优化统计: userId=%s, model=%s, tokens=%s",
+                    "提示词优化统计: userId=%s, model=%s, tokens=%s, cost=%s",
                     user_id,
                     model,
                     total_tokens,
+                    cost,
                 )
 
             logger.info(

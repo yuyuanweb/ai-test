@@ -15,6 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 router = APIRouter(prefix="/image", tags=["图片生成"])
 
 
+def _get_redis(request: Request):
+    return getattr(request.app.state, "redis_client", None)
+
+
 @router.post("/generate", response_model=BaseResponse[list], summary="生成图片（文本/图生图）")
 async def generate_image(
     request: GenerateImageRequest,
@@ -23,7 +27,7 @@ async def generate_image(
 ):
     """生成图片，返回图片 URL 列表。"""
     login_user = await UserService.get_login_user(db, http_request)
-    result_list, _ = await generate_images(request, login_user.id)
+    result_list, _ = await generate_images(request, login_user.id, redis_client=_get_redis(http_request))
     return BaseResponse(code=0, data=[r.model_dump(by_alias=True, exclude_none=True) for r in result_list], message="ok")
 
 
@@ -36,7 +40,7 @@ async def generate_image_stream(
     """SSE 流式返回：thinking -> image -> done / error。"""
     login_user = await UserService.get_login_user(db, http_request)
     return StreamingResponse(
-        generate_images_stream(request, login_user.id),
+        generate_images_stream(request, login_user.id, redis_client=_get_redis(http_request)),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

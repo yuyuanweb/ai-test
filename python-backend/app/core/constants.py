@@ -14,3 +14,19 @@ class CacheConstant:
     MODEL_PRICING_KEY_PREFIX = "model:pricing:"
 
     MODEL_PRICING_TTL_HOURS = 24
+
+    USER_DAILY_COST_KEY_PREFIX = "user:cost:daily:"
+
+    USER_MONTHLY_COST_KEY_PREFIX = "user:cost:monthly:"
+
+    USER_DAILY_COST_TTL_HOURS = 25
+
+    USER_MONTHLY_COST_TTL_DAYS = 32
+
+    STATISTICS_COST_KEY_PREFIX = "statistics:cost:"
+
+    STATISTICS_USAGE_KEY_PREFIX = "statistics:usage:"
+
+    STATISTICS_PERFORMANCE_KEY_PREFIX = "statistics:performance:"
+
+    STATISTICS_TTL_MINUTES = 5

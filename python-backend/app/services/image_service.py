@@ -22,6 +22,8 @@ from app.models.model import Model
 from app.schemas.image import GenerateImageRequest, GeneratedImageVO, ImageStreamChunkVO
 from app.services.file_service import _check_cos_upload_ready
 from app.services.model_service import ModelService
+from app.services.budget_service import add_cost_async
+from app.services.user_model_usage_service import update_user_model_usage
 from app.utils.cos_client import put_object
 
 settings = get_settings()
@@ -254,7 +256,11 @@ async def _save_failed_message(
         return None, None
 
 
-async def generate_images(request: GenerateImageRequest, user_id: int) -> tuple[List[GeneratedImageVO], Optional[str]]:
+async def generate_images(
+    request: GenerateImageRequest,
+    user_id: int,
+    redis_client=None,
+) -> tuple[List[GeneratedImageVO], Optional[str]]:
     """
     调用 OpenRouter 生成图片，上传 COS，可选保存到会话。
     返回 (GeneratedImageVO 列表, reasoning 文本)。
@@ -359,6 +365,14 @@ async def generate_images(request: GenerateImageRequest, user_id: int) -> tuple[
                 )
             )
             await db.commit()
+            if cost_decimal and cost_decimal > 0 and user_id and redis_client:
+                try:
+                    await add_cost_async(redis_client, user_id, cost_decimal)
+                    await update_user_model_usage(
+                        db, user_id, request.model, total_tokens, cost_decimal
+                    )
+                except Exception as e:
+                    logger.warning("图片生成成本追踪失败: userId=%s, error=%s", user_id, str(e))
 
     conversation_id = request.conversation_id
     saved_message_index = None
@@ -388,7 +402,9 @@ async def generate_images(request: GenerateImageRequest, user_id: int) -> tuple[
 
 
 async def generate_images_stream(
-    request: GenerateImageRequest, user_id: int
+    request: GenerateImageRequest,
+    user_id: int,
+    redis_client=None,
 ) -> AsyncGenerator[str, None]:
     """
     SSE 流式返回：先调用 generate_images，再按 thinking -> image -> done 顺序推送；异常时推送 error。
@@ -403,7 +419,7 @@ async def generate_images_stream(
         return f"data: {chunk.model_dump_json(by_alias=True, exclude_none=True)}\n\n"
 
     try:
-        images, reasoning = await generate_images(request, user_id)
+        images, reasoning = await generate_images(request, user_id, redis_client=redis_client)
         if reasoning and reasoning.strip():
             yield send(
                 ImageStreamChunkVO(
