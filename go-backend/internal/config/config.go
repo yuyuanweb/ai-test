@@ -4,6 +4,8 @@ package config
 
 import (
 	"log"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -106,6 +108,57 @@ func LoadConfig() error {
 		return err
 	}
 
+	overrideFromEnv()
+
 	log.Println("配置文件加载成功")
 	return nil
+}
+
+func overrideFromEnv() {
+	if v := os.Getenv("SERVER_MODE"); v != "" {
+		AppConfig.Server.Mode = v
+	}
+	if v := os.Getenv("DATABASE_HOST"); v != "" {
+		AppConfig.Database.Host = v
+	}
+	if v := os.Getenv("DATABASE_PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil {
+			AppConfig.Database.Port = port
+		}
+	}
+	if v := os.Getenv("DATABASE_USER"); v != "" {
+		AppConfig.Database.User = v
+	}
+	if v := os.Getenv("DATABASE_PASSWORD"); v != "" {
+		AppConfig.Database.Password = v
+	}
+	if v := os.Getenv("DATABASE_DBNAME"); v != "" {
+		AppConfig.Database.DBName = v
+	}
+	if v := os.Getenv("REDIS_ADDR"); v != "" {
+		AppConfig.Redis.Addr = v
+	}
+	if v := os.Getenv("REDIS_PASSWORD"); v != "" {
+		AppConfig.Redis.Password = v
+	}
+	if v := os.Getenv("RABBITMQ_HOST"); v != "" {
+		AppConfig.RabbitMQ.Host = v
+	}
+	if v := os.Getenv("RABBITMQ_PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil {
+			AppConfig.RabbitMQ.Port = port
+		}
+	}
+	if v := os.Getenv("RABBITMQ_USERNAME"); v != "" {
+		AppConfig.RabbitMQ.Username = v
+	}
+	if v := os.Getenv("RABBITMQ_PASSWORD"); v != "" {
+		AppConfig.RabbitMQ.Password = v
+	}
+	if v := os.Getenv("OPENROUTER_APIKEY"); v != "" {
+		AppConfig.OpenRouter.APIKey = v
+	}
+	if v := os.Getenv("OPENROUTER_BASEURL"); v != "" {
+		AppConfig.OpenRouter.BaseURL = v
+	}
 }
