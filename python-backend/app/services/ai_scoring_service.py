@@ -6,7 +6,8 @@ import asyncio
 import json
 import re
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from decimal import Decimal
+from typing import List, Optional, Any
 
 from openai import AsyncOpenAI, OpenAI
 from sqlalchemy import select
@@ -16,6 +17,8 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.errors import BusinessException, ErrorCode
 from app.utils.ai_retry_helper import run_with_retry, run_with_retry_async
+from app.utils.cost_calculator import CostCalculator
+from app.utils.model_pricing_cache import get_model_pricing_cached_sync
 from app.core.logging_config import logger
 from app.models.model import Model
 from app.schemas.evaluation import EvaluationResult, JudgeScore, AIScoreResult
@@ -256,6 +259,8 @@ class AIScoringServiceImpl(AIScoringService):
         question: str,
         model_response: str,
         user_id: Optional[int] = None,
+        db: Optional[AsyncSession] = None,
+        redis_client: Any = None,
     ) -> EvaluationResult:
         if not question or not question.strip():
             raise BusinessException(ErrorCode.PARAMS_ERROR, "问题不能为空")
@@ -269,13 +274,63 @@ class AIScoringServiceImpl(AIScoringService):
             len(model_response),
             user_id,
         )
-        ev, _, _ = await self._invoke_judge(prompt, JUDGE_MODEL_DEFAULT)
+        ev, inp_tok, out_tok = await self._invoke_judge(prompt, JUDGE_MODEL_DEFAULT)
         if ev is None:
             raise BusinessException(
                 ErrorCode.SYSTEM_ERROR, "AI评分失败: 评委返回无法解析"
             )
+        if user_id and db and redis_client and (inp_tok + out_tok) > 0:
+            await self._record_judge_cost_async(
+                db, redis_client, user_id, JUDGE_MODEL_DEFAULT, inp_tok, out_tok
+            )
         logger.info("AI评分完成: totalScore=%s, rating=%s", ev.total_score, ev.rating)
         return ev
+
+    async def _record_judge_cost_async(
+        self,
+        db: AsyncSession,
+        redis_client: Any,
+        user_id: int,
+        model_name: str,
+        inp_tok: int,
+        out_tok: int,
+    ) -> None:
+        """记录评委模型成本（异步）"""
+        try:
+            from app.utils.model_pricing_cache import get_model_pricing_cached_async
+            from app.services.budget_service import add_cost_async
+            from app.services.user_model_usage_service import update_user_model_usage
+
+            async def _fetch():
+                r = await db.execute(
+                    select(Model).where(Model.id == model_name, Model.is_delete == 0)
+                )
+                m = r.scalar_one_or_none()
+                if m:
+                    return (m.input_price, m.output_price)
+                return (None, None)
+            inp_p, out_p = await get_model_pricing_cached_async(
+                redis_client, model_name, _fetch
+            )
+            if inp_p is None and out_p is None:
+                inp_p, out_p = await _fetch()
+            cost = Decimal("0")
+            if inp_p is not None and out_p is not None:
+                cost = CostCalculator.calculate_cost(
+                    model_name, inp_tok, out_tok, inp_p, out_p
+                )
+            else:
+                cost = (
+                    (Decimal(str(inp_tok)) / Decimal("1000000")) * Decimal("1")
+                    + (Decimal(str(out_tok)) / Decimal("1000000")) * Decimal("2")
+                ).quantize(Decimal("0.000001"))
+            if cost and cost > 0:
+                await add_cost_async(redis_client, user_id, cost)
+                await update_user_model_usage(
+                    db, user_id, model_name, inp_tok + out_tok, cost
+                )
+        except Exception as e:
+            logger.warning("AI评分成本追踪失败: userId=%s, error=%s", user_id, str(e))
 
     async def score_with_multiple_judges(
         self,
@@ -284,6 +339,7 @@ class AIScoringServiceImpl(AIScoringService):
         tested_model_name: str,
         user_id: Optional[int] = None,
         db: Optional[AsyncSession] = None,
+        redis_client: Any = None,
     ) -> AIScoreResult:
         if not question or not question.strip():
             raise BusinessException(ErrorCode.PARAMS_ERROR, "问题不能为空")
@@ -303,7 +359,9 @@ class AIScoringServiceImpl(AIScoringService):
                 "未找到可用的评委模型，使用单评委模式: testedModel=%s",
                 tested_model_name,
             )
-            single = await self.score(question, model_response, user_id)
+            single = await self.score(
+                question, model_response, user_id, db=db, redis_client=redis_client
+            )
             js = JudgeScore(
                 model=JUDGE_MODEL_DEFAULT,
                 scores=single.scores,
@@ -327,10 +385,13 @@ class AIScoringServiceImpl(AIScoringService):
             user_id,
         )
 
+        judge_usage_list: List[tuple[str, int, int]] = []
+
         async def one_judge(model_name: str) -> Optional[JudgeScore]:
-            ev, _, _ = await self._invoke_judge(prompt, model_name)
+            ev, inp_tok, out_tok = await self._invoke_judge(prompt, model_name)
             if ev is None:
                 return None
+            judge_usage_list.append((model_name, inp_tok, out_tok))
             logger.info(
                 "评委 %s 评分完成: totalScore=%s, rating=%s",
                 model_name,
@@ -356,6 +417,12 @@ class AIScoringServiceImpl(AIScoringService):
 
         average_rating = _calculate_average_rating(judge_scores)
         consistency = _calculate_consistency(judge_scores)
+        if user_id and db and redis_client:
+            for model_name, inp_tok, out_tok in judge_usage_list:
+                if (inp_tok + out_tok) > 0:
+                    await self._record_judge_cost_async(
+                        db, redis_client, user_id, model_name, inp_tok, out_tok
+                    )
         logger.info(
             "多评委评分完成: testedModel=%s, judges=%s, averageRating=%s, consistency=%s",
             tested_model_name,
@@ -397,9 +464,9 @@ def _invoke_judge_sync(
     prompt: str,
     model_name: str,
     extra_headers: Optional[dict] = None,
-) -> Optional[EvaluationResult]:
+) -> tuple[Optional[EvaluationResult], int, int]:
     """
-    同步调用单个评委模型，返回解析结果
+    同步调用单个评委模型，返回 (解析结果, input_tokens, output_tokens)
     """
     try:
         resp = run_with_retry(
@@ -414,10 +481,12 @@ def _invoke_judge_sync(
         content = ""
         if resp.choices and len(resp.choices) > 0:
             content = (resp.choices[0].message.content or "").strip()
-        return _parse_evaluation_result(content)
+        input_tokens = resp.usage.prompt_tokens if resp.usage else 0
+        output_tokens = resp.usage.completion_tokens if resp.usage else 0
+        return _parse_evaluation_result(content), input_tokens, output_tokens
     except Exception as e:
         logger.error("评委 %s 同步评分失败: %s", model_name, e)
-        return None
+        return None, 0, 0
 
 
 def run_ai_scoring_sync(
@@ -427,6 +496,8 @@ def run_ai_scoring_sync(
     model_response: str,
     tested_model_name: str,
     extra_headers: Optional[dict] = None,
+    user_id: Optional[int] = None,
+    redis_client: Any = None,
 ) -> Optional[AIScoreResult]:
     """
     同步执行多评委 AI 评分，供批量测试 worker 在子线程中调用，避免 asyncio 与多线程冲突。
@@ -448,10 +519,49 @@ def run_ai_scoring_sync(
     except Exception as e:
         logger.warning("同步选择评委模型失败: %s", e)
 
+    def _calc_judge_cost(model_id: str, inp: int, out: int) -> Decimal:
+        def _fetch():
+            r = sync_session.execute(
+                select(Model).where(Model.id == model_id, Model.is_delete == 0)
+            )
+            m = r.scalar_one_or_none()
+            if m:
+                return (m.input_price, m.output_price)
+            return (None, None)
+        inp_p, out_p = (None, None)
+        if redis_client:
+            try:
+                inp_p, out_p = get_model_pricing_cached_sync(redis_client, model_id, _fetch)
+            except Exception:
+                pass
+        if inp_p is None and out_p is None:
+            inp_p, out_p = _fetch()
+        if inp_p is not None and out_p is not None:
+            return CostCalculator.calculate_cost(model_id, inp, out, inp_p, out_p)
+        return (
+            (Decimal(str(inp)) / Decimal("1000000")) * Decimal("1")
+            + (Decimal(str(out)) / Decimal("1000000")) * Decimal("2")
+        ).quantize(Decimal("0.000001"))
+
     if not judge_models:
-        ev = _invoke_judge_sync(openai_sync_client, prompt, JUDGE_MODEL_DEFAULT, headers)
+        ev, inp_tok, out_tok = _invoke_judge_sync(
+            openai_sync_client, prompt, JUDGE_MODEL_DEFAULT, headers
+        )
         if ev is None:
             return None
+        if user_id and redis_client and (inp_tok + out_tok) > 0:
+            try:
+                from app.services.budget_service import add_cost_sync
+                from app.services.user_model_usage_service import update_user_model_usage_sync
+                cost = _calc_judge_cost(JUDGE_MODEL_DEFAULT, inp_tok, out_tok)
+                if cost and cost > 0:
+                    add_cost_sync(redis_client, user_id, cost)
+                    update_user_model_usage_sync(
+                        sync_session, user_id, JUDGE_MODEL_DEFAULT,
+                        inp_tok + out_tok, cost
+                    )
+            except Exception as e:
+                logger.warning("AI评分成本追踪失败: userId=%s, error=%s", user_id, str(e))
         js = JudgeScore(
             model=JUDGE_MODEL_DEFAULT,
             scores=ev.scores,
@@ -463,8 +573,11 @@ def run_ai_scoring_sync(
         return AIScoreResult(judges=[js], average_rating=avg, consistency=0.0)
 
     judge_scores: List[JudgeScore] = []
+    judge_usage: List[tuple[str, int, int]] = []
     for model_name in judge_models:
-        ev = _invoke_judge_sync(openai_sync_client, prompt, model_name, headers)
+        ev, inp_tok, out_tok = _invoke_judge_sync(
+            openai_sync_client, prompt, model_name, headers
+        )
         if ev is not None:
             judge_scores.append(
                 JudgeScore(
@@ -475,9 +588,25 @@ def run_ai_scoring_sync(
                     comment=ev.comment,
                 )
             )
+            judge_usage.append((model_name, inp_tok, out_tok))
 
     if not judge_scores:
         return None
+    if user_id and redis_client:
+        try:
+            from app.services.budget_service import add_cost_sync
+            from app.services.user_model_usage_service import update_user_model_usage_sync
+            for model_name, inp_tok, out_tok in judge_usage:
+                if (inp_tok + out_tok) > 0:
+                    cost = _calc_judge_cost(model_name, inp_tok, out_tok)
+                    if cost and cost > 0:
+                        add_cost_sync(redis_client, user_id, cost)
+                        update_user_model_usage_sync(
+                            sync_session, user_id, model_name,
+                            inp_tok + out_tok, cost
+                        )
+        except Exception as e:
+            logger.warning("AI评分成本追踪失败: userId=%s, error=%s", user_id, str(e))
     average_rating = _calculate_average_rating(judge_scores)
     consistency = _calculate_consistency(judge_scores)
     return AIScoreResult(

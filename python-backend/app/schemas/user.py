@@ -69,7 +69,7 @@ class LoginUserVO(BaseModel):
 
 class UserUpdateRequest(BaseModel):
     """
-    用户更新请求
+    用户更新请求（管理员用）
     """
     id: int = Field(..., description="用户ID", gt=0)
     user_name: Optional[str] = Field(None, description="用户昵称", alias="userName")
@@ -78,6 +78,20 @@ class UserUpdateRequest(BaseModel):
 
     class Config:
         populate_by_name = True
+
+
+class UserUpdateMyRequest(BaseModel):
+    """
+    当前登录用户更新请求（编辑自己的信息）
+    """
+    user_name: Optional[str] = Field(None, description="用户昵称", alias="userName")
+    user_avatar: Optional[str] = Field(None, description="用户头像", alias="userAvatar")
+    user_profile: Optional[str] = Field(None, description="用户简介", alias="userProfile")
+    daily_budget: Optional[Decimal] = Field(None, description="日预算限额", alias="dailyBudget")
+    monthly_budget: Optional[Decimal] = Field(None, description="月预算限额", alias="monthlyBudget")
+    budget_alert_threshold: Optional[int] = Field(None, description="预算预警阈值", alias="budgetAlertThreshold")
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class UserAddRequest(BaseModel):

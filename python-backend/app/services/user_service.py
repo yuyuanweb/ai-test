@@ -363,6 +363,71 @@ class UserService:
         return True
 
     @staticmethod
+    async def update_my_info(
+        db: AsyncSession,
+        user_id: int,
+        user_name: Optional[str] = None,
+        user_avatar: Optional[str] = None,
+        user_profile: Optional[str] = None,
+        daily_budget: Optional[Decimal] = None,
+        monthly_budget: Optional[Decimal] = None,
+        budget_alert_threshold: Optional[int] = None
+    ) -> bool:
+        """
+        更新当前登录用户信息（含昵称、头像、简介、预算设置）
+        """
+        if user_id <= 0:
+            raise BusinessException(ErrorCode.PARAMS_ERROR, "用户ID无效")
+        result = await db.execute(
+            select(User).where(User.id == user_id, User.is_delete == 0)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise BusinessException(ErrorCode.NOT_FOUND_ERROR, "用户不存在")
+        if user_name is not None:
+            user.user_name = user_name
+        if user_avatar is not None:
+            user.user_avatar = user_avatar
+        if user_profile is not None:
+            user.user_profile = user_profile
+        if daily_budget is not None:
+            user.daily_budget = daily_budget
+        if monthly_budget is not None:
+            user.monthly_budget = monthly_budget
+        if budget_alert_threshold is not None:
+            user.budget_alert_threshold = budget_alert_threshold
+        await db.commit()
+        return True
+
+    @staticmethod
+    async def update_budget(
+        db: AsyncSession,
+        user_id: int,
+        daily_budget: Optional[Decimal] = None,
+        monthly_budget: Optional[Decimal] = None,
+        alert_threshold: Optional[int] = None
+    ) -> bool:
+        """
+        更新用户预算设置
+        """
+        if user_id <= 0:
+            raise BusinessException(ErrorCode.PARAMS_ERROR, "用户ID无效")
+        result = await db.execute(
+            select(User).where(User.id == user_id, User.is_delete == 0)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            raise BusinessException(ErrorCode.NOT_FOUND_ERROR, "用户不存在")
+        if daily_budget is not None:
+            user.daily_budget = daily_budget
+        if monthly_budget is not None:
+            user.monthly_budget = monthly_budget
+        if alert_threshold is not None:
+            user.budget_alert_threshold = alert_threshold
+        await db.commit()
+        return True
+
+    @staticmethod
     async def list_user_vo_by_page(
         db: AsyncSession, 
         query_request: UserQueryRequest

@@ -11,6 +11,7 @@ from sqlalchemy import select, text
 from openai import OpenAI
 
 from app.core.config import get_settings
+from app.core.logging_config import logger
 from app.db.redis import get_redis_client_sync
 from app.db.sync_session import get_sync_session
 from app.models.test_task import TestTask
@@ -19,6 +20,8 @@ from app.models.model import Model
 from app.utils.cost_calculator import CostCalculator
 from app.utils.model_pricing_cache import get_model_pricing_cached_sync
 from app.utils.prompt_guardrail import validate as validate_prompt
+from app.services.budget_service import add_cost_sync
+from app.services.user_model_usage_service import update_user_model_usage_sync
 
 settings = get_settings()
 DEFAULT_TEMPERATURE = 0.7
@@ -177,6 +180,8 @@ def run_subtask_sync(sub_task_data: dict) -> dict:
                 model_response=output_text,
                 tested_model_name=model_name,
                 extra_headers=OPENROUTER_EXTRA_HEADERS,
+                user_id=user_id,
+                redis_client=get_redis_client_sync(),
             )
             if ai_result is not None:
                 test_result.ai_score = ai_score_result_to_json(ai_result)
@@ -212,6 +217,21 @@ def run_subtask_sync(sub_task_data: dict) -> dict:
         )
 
         session.commit()
+
+        if user_id and cost and cost > 0:
+            try:
+                redis_client = get_redis_client_sync()
+                if redis_client:
+                    add_cost_sync(redis_client, user_id, cost)
+                update_user_model_usage_sync(
+                    session,
+                    user_id,
+                    model_name,
+                    input_tokens + output_tokens,
+                    cost
+                )
+            except Exception as e:
+                logger.warning("批量测试成本追踪失败: userId=%s, error=%s", user_id, str(e))
 
         from app.services.progress_service import publish_progress
         task_result2 = session.execute(
@@ -268,7 +288,6 @@ def run_subtask_sync(sub_task_data: dict) -> dict:
                 })
             except Exception:
                 session.rollback()
-        from app.core.logging_config import logger
         logger.exception("子任务执行失败: taskId={}, model={}", task_id, model_name)
         raise
 
