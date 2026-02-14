@@ -50,7 +50,21 @@ class Settings(BaseSettings):
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
     REDIS_PASSWORD: str = ""
-    
+
+    RABBITMQ_HOST: str = "localhost"
+    RABBITMQ_PORT: int = 5672
+    RABBITMQ_USER: str = "guest"
+    RABBITMQ_PASSWORD: str = "guest"
+    RABBITMQ_VHOST: str = "/"
+
+    @property
+    def rabbitmq_url(self) -> str:
+        """Celery Broker URL（与 Java Spring RabbitMQ 一致）"""
+        user = quote_plus(self.RABBITMQ_USER)
+        password = quote_plus(self.RABBITMQ_PASSWORD)
+        vhost = self.RABBITMQ_VHOST.strip("/") or "%2F"
+        return f"amqp://{user}:{password}@{self.RABBITMQ_HOST}:{self.RABBITMQ_PORT}/{vhost}"
+
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     
