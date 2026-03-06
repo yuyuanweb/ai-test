@@ -9,7 +9,7 @@
 
 除了 Java 主版本外，项目还提供了 **Go 版本**（Gin + LangChainGo）和 **Python 版本**（FastAPI + LangChain），三套后端共用同一套前端，方便不同技术栈的同学学习。每个版本都有独立的简历写法和面试题解，直接写满你的简历。
 
-![](https://yupi-1300582479.cos.ap-guangzhou.myqcloud.com/Typoraimage-20260129160900291.png)
+![](frontend/src/assets/image/Typoraimage-20260129160900291.png)
 
 
 
@@ -20,19 +20,19 @@
 
 选择 1-8 个大模型，输入同一个提示词，并排实时流式展示各模型的回答，直观对比响应速度、Token 消耗和成本。
 
-![](https://yupi-1300582479.cos.ap-guangzhou.myqcloud.com/Typoraimage-20260129161101104.png)
+![](frontend/src/assets/image//Typoraimage-20260129161101104.png)
 
 2）Prompt Lab 提示词实验
 
 选择单个模型，输入 2-5 个提示词变体，对比不同提示词策略（直接提问、思维链、角色扮演等）的效果，帮助优化提示词。
 
-![](https://yupi-1300582479.cos.ap-guangzhou.myqcloud.com/Typoraimage-20260129161128237.png)
+![](frontend/src/assets/image//Typoraimage-20260129161128237.png)
 
 3）Battle 匿名对战模式
 
 隐藏模型名称和图标，以匿名方式（模型 A、模型 B）对比两个大模型的回答，用户根据回答质量评分后再揭晓真实身份，消除品牌偏见，让评测回归本质。
 
-![](https://yupi-1300582479.cos.ap-guangzhou.myqcloud.com/Typoraimage-20260202202201638.png)
+![](frontend/src/assets/image//Typoraimage-20260202202201638.png)
 
 
 
@@ -40,33 +40,33 @@
 
 基于预设场景（编程能力、数学推理、文案创作等）自动化批量测试，使用 RabbitMQ 任务队列异步执行，实时推送测试进度。
 
-![](https://yupi-1300582479.cos.ap-guangzhou.myqcloud.com/Typoraimage-20260129161229739.png)
+![](frontend/src/assets/image//Typoraimage-20260129161229739.png)
 
 5）可视化评测报告
 
 使用 ECharts 生成多维度对比图表（雷达图、柱状图），支持 AI 自动评分和 PDF 导出，为模型选型提供数据支撑。
 
-![](https://yupi-1300582479.cos.ap-guangzhou.myqcloud.com/Typoraimage-20260129161252793.png)
+![](frontend/src/assets/image//Typoraimage-20260129161252793.png)
 
 6）代码沙箱预览
 
 自动识别 AI 生成的 HTML/CSS/JS 代码，在安全的 iframe 沙箱中实时预览网页效果，类似 ChatGPT 的代码展示体验。
 
-![](https://yupi-1300582479.cos.ap-guangzhou.myqcloud.com/Typoraimage-20260129161319195.png)
+![](frontend/src/assets/image//Typoraimage-20260129161319195.png)
 
 7）成本实时监控和预警
 
 用户在测试过程中可以实时查看消耗成本，当消耗达到预算阈值时自动预警，还提供成本统计仪表盘，帮你优化模型选择。
 
-![](https://yupi-1300582479.cos.ap-guangzhou.myqcloud.com/Typoraimage-20260204172450854.png)
+![](frontend/src/assets/image//Typoraimage-20260204172450854.png)
 
 8）多模态输入支持
 
 支持上传图片和文本组合输入，对比不同模型的图片理解能力；支持联网搜索获取实时信息；支持调用图像生成模型，全方位评测大模型的多模态能力。
 
-![](https://yupi-1300582479.cos.ap-guangzhou.myqcloud.com/Typoraimage-20260203142757724.png)
+![](frontend/src/assets/image//Typoraimage-20260203142757724.png)
 
-![](https://yupi-1300582479.cos.ap-guangzhou.myqcloud.com/Typoraimage-20260208134412561.png)
+![](frontend/src/assets/image//Typoraimage-20260208134412561.png)
 
 当你学会这个项目后，不仅能开发 AI 模型评测工具，更能灵活开发各种 AI 对比分析应用：AI 写作助手对比、智能客服测评、代码生成器评测等，尽情发挥自己的想象力。
 
@@ -79,7 +79,7 @@
 
 已经有不少编程导航的鱼友通过我们的 AI 项目斩获了大厂 offer，来看看他们的战果：
 
-![](https://yupi-1300582479.cos.ap-guangzhou.myqcloud.com/Typora1753325705083-12fe403e-93ba-4289-87cd-61ec83b57d5e.png)
+![](frontend/src/assets/image//Typora1753325705083-12fe403e-93ba-4289-87cd-61ec83b57d5e.png)
 
 ## 二、项目优势
 ### 项目收获
@@ -87,7 +87,7 @@
 
 全栈 AI 项目，技术丰富，玩透 Spring AI：
 
-![](https://yupi-1300582479.cos.ap-guangzhou.myqcloud.com/Typoraimage-20260128231455225.png)
+![](frontend/src/assets/image//Typoraimage-20260128231455225.png)
 
 业务场景真实，实践大量企业解决方案：
 
@@ -192,7 +192,7 @@ graph TD
 简单来说，Side-by-Side 和 Prompt Lab 走的是实时对比路线，选模型、输入问题、流式展示、用户评分、保存对话；批量测试走的是异步任务路线，创建任务、RabbitMQ 异步执行、AI 自动评分、生成报告、导出 PDF。每个环节背后都有对应的技术方案支撑，后面会逐一展开讲。
 
 ### 解决方案实战
-![](https://yupi-1300582479.cos.ap-guangzhou.myqcloud.com/Typoraimage-20260128191446549.png)
+![](frontend/src/assets/image//Typoraimage-20260128191446549.png)
 
 AI 技术实战：
 
@@ -236,7 +236,7 @@ AI 技术实战：
 ## 四、功能模块
 平台一共包含以下几大功能模块，我们来逐一梳理：
 
-![](https://yupi-1300582479.cos.ap-guangzhou.myqcloud.com/Typoraimage-20260208140006795.png)
+![](frontend/src/assets/image//Typoraimage-20260208140006795.png)
 
 **用户模块**
 
@@ -312,7 +312,7 @@ AI 技术实战：
 ## 五、技术选型
 了解完功能模块，再来看看支撑这些功能背后的技术选型，整体技术栈如下图所示：
 
-![](https://yupi-1300582479.cos.ap-guangzhou.myqcloud.com/TyporaiShotHelper%202026-01-28%2023.24.35.png)
+![](frontend/src/assets/image//TyporaiShotHelper%202026-01-28%2023.24.35.png)
 
 ### 后端
 核心框架：
@@ -422,7 +422,7 @@ UI & 状态：
 ## 六、架构设计
 从客户端发送请求开始，自上而下经过一系列处理，最终得到响应结果。架构图如下：
 
-![](https://cdn.nlark.com/yuque/0/2026/png/43298525/1769614955912-c61ef21a-67e4-4493-b4c2-5ba60e20ada8.png?x-oss-process=image%2Fcrop%2Cx_0%2Cy_136%2Cw_2676%2Ch_3320)
+![](frontend/src/assets/image/1769614955912-c61ef21a-67e4-4493-b4c2-5ba60e20ada8.png)
 
 ## 七、准备工作
 ### AI 基础知识
